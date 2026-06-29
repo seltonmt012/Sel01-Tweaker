@@ -1,7 +1,8 @@
 # ============================================================================
 #  Module 01 - Debloat  (orchestrates Raphire/Win11Debloat, MIT)
-#  Downloads and runs the upstream script silently with a per-profile flag set.
-#  Skipped automatically when offline or -SkipDebloat.
+#  Downloads and runs the upstream script silently. Params are passed as a
+#  hashtable (named/splatted) so switches bind reliably. Win11Debloat itself
+#  supports Windows 10 and 11. Skipped when offline or -SkipDebloat.
 # ============================================================================
 
 function Invoke-Module-Debloat {
@@ -9,33 +10,32 @@ function Invoke-Module-Debloat {
 
     $url = 'https://debloat.raphi.re/'   # official redirect to latest Win11Debloat.ps1
 
-    # Shared flags applied in both profiles.
-    $common = @(
-        '-RemoveApps',
-        '-DisableTelemetry',
-        '-DisableBing',
-        '-DisableSuggestions',
-        '-DisableLockscreenTips',
-        '-DisableSettingsHome',
-        '-DisableSettings365Ads',
-        '-RevertContextMenu',
-        '-DisableMouseAcceleration',
-        '-ShowKnownFileExt',
-        '-Silent'
-    )
+    # Shared across both profiles.
+    $params = @{
+        RemoveApps             = $true
+        DisableTelemetry       = $true
+        DisableBing            = $true
+        DisableSuggestions     = $true
+        DisableLockscreenTips  = $true
+        DisableSettingsHome    = $true
+        DisableSettings365Ads  = $true
+        RevertContextMenu      = $true
+        DisableMouseAcceleration = $true
+        ShowKnownFileExt       = $true
+        Silent                 = $true
+    }
 
-    # Clean profile = more aggressive; gaming keeps gaming apps + Game Bar intact
-    # (Game Bar / DVR is handled deliberately in module 06 per profile).
-    $cleanExtra = @(
-        '-RemoveGamingApps',
-        '-DisableWidgets',
-        '-DisableCopilot',
-        '-DisableRecall',
-        '-DisableChat',
-        '-DisableDesktopSpotlight'
-    )
+    # Clean = more aggressive. Gaming keeps gaming apps + Game Bar (handled in 06).
+    if ($Global:Sel01Tweaker.Profile -eq 'Clean') {
+        $params += @{
+            RemoveGamingApps    = $true
+            DisableWidgets      = $true
+            DisableCopilot      = $true
+            DisableRecall       = $true
+            DisableChat         = $true
+            DisableDesktopSpotlight = $true
+        }
+    }
 
-    $args = if ($Global:Sel01Tweaker.Profile -eq 'Clean') { $common + $cleanExtra } else { $common }
-
-    Invoke-Remote -Name 'Win11Debloat' -Url $url -ArgList $args
+    Invoke-Remote -Name 'Win11Debloat' -Url $url -Params $params
 }

@@ -128,7 +128,8 @@ function Invoke-Pipeline {
     $Global:Sel01Tweaker.Backup  = [System.Collections.Generic.List[object]]::new()
     $Global:Sel01Tweaker.Changes = [System.Collections.Generic.List[string]]::new()
 
-    Write-Log "Sel01-Tweaker | Profile=$Profile | DryRun=$DryRun" 'STEP'
+    $os = Get-Sel01OSInfo
+    Write-Log "Sel01-Tweaker | $os (build $($Global:Sel01Tweaker.OSBuild)) | Profile=$Profile | DryRun=$DryRun" 'STEP'
 
     if (-not $Global:Sel01Tweaker.NoRestore) { New-Sel01TweakerRestorePoint }
     else { Write-Log 'Restore point skipped (-NoRestore)' 'WARN' }

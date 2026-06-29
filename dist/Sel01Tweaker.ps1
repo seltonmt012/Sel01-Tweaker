@@ -56,7 +56,28 @@ if (-not $Global:Sel01Tweaker) {
         Backup    = [System.Collections.Generic.List[object]]::new()
         Changes   = [System.Collections.Generic.List[string]]::new()
         RebootNeeded = $false
+        IsWin11   = $true
+        OSBuild   = 0
+        OSName    = 'Windows'
     }
+}
+
+function Get-Sel01OSInfo {
+    <#  Detects Windows 10 vs 11. [Environment]::OSVersion reports 10.0.x for
+        BOTH, so we use the build number: Win11 = build >= 22000. ProductName
+        also lies ("Windows 10" on 11), so the friendly name is derived from
+        the build + DisplayVersion.  #>
+    $cv = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+    $build = 0
+    try { $build = [int](Get-ItemProperty $cv -Name CurrentBuildNumber -ErrorAction Stop).CurrentBuildNumber } catch {}
+    if ($build -eq 0) { try { $build = [Environment]::OSVersion.Version.Build } catch {} }
+    $disp = ''
+    try { $disp = (Get-ItemProperty $cv -Name DisplayVersion -ErrorAction Stop).DisplayVersion } catch {}
+    $isWin11 = ($build -ge 22000)
+    $Global:Sel01Tweaker.IsWin11 = $isWin11
+    $Global:Sel01Tweaker.OSBuild = $build
+    $Global:Sel01Tweaker.OSName  = ('Windows {0}{1}' -f ($(if ($isWin11) {'11'} else {'10'})), $(if ($disp) {" $disp"} else {''}))
+    return $Global:Sel01Tweaker.OSName
 }
 
 function Initialize-Sel01TweakerState {
@@ -277,13 +298,23 @@ function Restart-Explorer {
 #  Used by the Win11Debloat / RemoveWindowsAI modules (MIT, run as-is).
 # ---------------------------------------------------------------------------
 function Invoke-Remote {
+    # Params is a hashtable splatted by NAME into the downloaded script. Use a
+    # hashtable (not a flat -Flag array) so switch params bind reliably and
+    # array params (e.g. RemoveWindowsAI -Options) pass as real arrays that pass
+    # the script's ValidateSet element-by-element.
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$Url,
-        [string[]]$ArgList = @()
+        [hashtable]$Params = @{}
     )
+    $shown = (($Params.GetEnumerator() | Sort-Object Name | ForEach-Object {
+        if     ($_.Value -is [bool])  { "-$($_.Key)" }
+        elseif ($_.Value -is [array]) { "-$($_.Key) $($_.Value -join ',')" }
+        else                          { "-$($_.Key) $($_.Value)" }
+    }) -join ' ')
+
     if ($Global:Sel01Tweaker.DryRun) {
-        Write-Log "DRYRUN orchestrate $Name : $Url $($ArgList -join ' ')" 'INFO'
+        Write-Log "DRYRUN orchestrate $Name : $Url $shown" 'INFO'
         return
     }
     if (-not (Test-Online)) {
@@ -294,10 +325,10 @@ function Invoke-Remote {
         Write-Log "Downloading $Name ..." 'INFO'
         $code = Invoke-RestMethod -Uri $Url -UseBasicParsing -ErrorAction Stop
         $sb = [scriptblock]::Create($code)
-        Write-Log "Running $Name $($ArgList -join ' ')" 'INFO'
-        & $sb @ArgList
+        Write-Log "Running $Name $shown" 'INFO'
+        & $sb @Params
         Write-Log "$Name finished" 'OK'
-        Add-Change "$Name applied ($($ArgList -join ' '))"
+        Add-Change "$Name applied ($shown)"
     } catch {
         Write-Log "$Name failed: $($_.Exception.Message)" 'WARN'
     }
@@ -408,8 +439,9 @@ function Invoke-Revert {
 # ----- bundled: 01-Debloat.ps1 -----
 # ============================================================================
 #  Module 01 - Debloat  (orchestrates Raphire/Win11Debloat, MIT)
-#  Downloads and runs the upstream script silently with a per-profile flag set.
-#  Skipped automatically when offline or -SkipDebloat.
+#  Downloads and runs the upstream script silently. Params are passed as a
+#  hashtable (named/splatted) so switches bind reliably. Win11Debloat itself
+#  supports Windows 10 and 11. Skipped when offline or -SkipDebloat.
 # ============================================================================
 
 function Invoke-Module-Debloat {
@@ -417,43 +449,45 @@ function Invoke-Module-Debloat {
 
     $url = 'https://debloat.raphi.re/'   # official redirect to latest Win11Debloat.ps1
 
-    # Shared flags applied in both profiles.
-    $common = @(
-        '-RemoveApps',
-        '-DisableTelemetry',
-        '-DisableBing',
-        '-DisableSuggestions',
-        '-DisableLockscreenTips',
-        '-DisableSettingsHome',
-        '-DisableSettings365Ads',
-        '-RevertContextMenu',
-        '-DisableMouseAcceleration',
-        '-ShowKnownFileExt',
-        '-Silent'
-    )
+    # Shared across both profiles.
+    $params = @{
+        RemoveApps             = $true
+        DisableTelemetry       = $true
+        DisableBing            = $true
+        DisableSuggestions     = $true
+        DisableLockscreenTips  = $true
+        DisableSettingsHome    = $true
+        DisableSettings365Ads  = $true
+        RevertContextMenu      = $true
+        DisableMouseAcceleration = $true
+        ShowKnownFileExt       = $true
+        Silent                 = $true
+    }
 
-    # Clean profile = more aggressive; gaming keeps gaming apps + Game Bar intact
-    # (Game Bar / DVR is handled deliberately in module 06 per profile).
-    $cleanExtra = @(
-        '-RemoveGamingApps',
-        '-DisableWidgets',
-        '-DisableCopilot',
-        '-DisableRecall',
-        '-DisableChat',
-        '-DisableDesktopSpotlight'
-    )
+    # Clean = more aggressive. Gaming keeps gaming apps + Game Bar (handled in 06).
+    if ($Global:Sel01Tweaker.Profile -eq 'Clean') {
+        $params += @{
+            RemoveGamingApps    = $true
+            DisableWidgets      = $true
+            DisableCopilot      = $true
+            DisableRecall       = $true
+            DisableChat         = $true
+            DisableDesktopSpotlight = $true
+        }
+    }
 
-    $args = if ($Global:Sel01Tweaker.Profile -eq 'Clean') { $common + $cleanExtra } else { $common }
-
-    Invoke-Remote -Name 'Win11Debloat' -Url $url -ArgList $args
+    Invoke-Remote -Name 'Win11Debloat' -Url $url -Params $params
 }
 
 
 # ----- bundled: 02-RemoveAI.ps1 -----
 # ============================================================================
 #  Module 02 - RemoveAI  (orchestrates zoicware/RemoveWindowsAI, MIT)
-#  Runs the upstream script non-interactively. Gaming = lighter option set,
-#  Clean = -AllOptions. Skipped when offline or -SkipAI.
+#  Params passed as a hashtable so -nonInteractive binds as a switch and
+#  -Options passes as a real string[] (each element validated by the script's
+#  ValidateSet). Gaming = lighter option set, Clean = -AllOptions.
+#  Recall is Win11-only; the script handles missing components gracefully, so
+#  it is safe to run on Windows 10 too (Copilot exists there as well).
 # ============================================================================
 
 function Invoke-Module-RemoveAI {
@@ -462,17 +496,25 @@ function Invoke-Module-RemoveAI {
     $url = 'https://raw.githubusercontent.com/zoicware/RemoveWindowsAI/main/RemoveWindowsAi.ps1'
 
     if ($Global:Sel01Tweaker.Profile -eq 'Clean') {
-        $args = @('-nonInteractive', '-AllOptions')
+        $params = @{ nonInteractive = $true; AllOptions = $true }
     } else {
-        # Gaming: strip Copilot/Recall + re-add protection, but skip the heaviest
-        # CBS/file surgery to keep the run fast and low-risk on a gaming box.
-        $args = @(
-            '-nonInteractive',
-            '-Options', 'DisableRegKeys,PreventAIPackageReinstall,DisableCopilotPolicies,RemoveAppxPackages,RemoveRecallFeature,RemoveWindowsAITasks,UpdateCleanupCheck'
-        )
+        # Gaming: strip Copilot/Recall + re-add protection, skip the heaviest
+        # CBS/file surgery to keep the run fast and low-risk.
+        $params = @{
+            nonInteractive = $true
+            Options = @(
+                'DisableRegKeys',
+                'PreventAIPackageReinstall',
+                'DisableCopilotPolicies',
+                'RemoveAppxPackages',
+                'RemoveRecallFeature',
+                'RemoveWindowsAITasks',
+                'UpdateCleanupCheck'
+            )
+        }
     }
 
-    Invoke-Remote -Name 'RemoveWindowsAI' -Url $url -ArgList $args
+    Invoke-Remote -Name 'RemoveWindowsAI' -Url $url -Params $params
 }
 
 
@@ -1034,7 +1076,8 @@ function Invoke-Pipeline {
     $Global:Sel01Tweaker.Backup  = [System.Collections.Generic.List[object]]::new()
     $Global:Sel01Tweaker.Changes = [System.Collections.Generic.List[string]]::new()
 
-    Write-Log "Sel01-Tweaker | Profile=$Profile | DryRun=$DryRun" 'STEP'
+    $os = Get-Sel01OSInfo
+    Write-Log "Sel01-Tweaker | $os (build $($Global:Sel01Tweaker.OSBuild)) | Profile=$Profile | DryRun=$DryRun" 'STEP'
 
     if (-not $Global:Sel01Tweaker.NoRestore) { New-Sel01TweakerRestorePoint }
     else { Write-Log 'Restore point skipped (-NoRestore)' 'WARN' }

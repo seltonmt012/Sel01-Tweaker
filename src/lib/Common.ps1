@@ -19,7 +19,28 @@ if (-not $Global:Sel01Tweaker) {
         Backup    = [System.Collections.Generic.List[object]]::new()
         Changes   = [System.Collections.Generic.List[string]]::new()
         RebootNeeded = $false
+        IsWin11   = $true
+        OSBuild   = 0
+        OSName    = 'Windows'
     }
+}
+
+function Get-Sel01OSInfo {
+    <#  Detects Windows 10 vs 11. [Environment]::OSVersion reports 10.0.x for
+        BOTH, so we use the build number: Win11 = build >= 22000. ProductName
+        also lies ("Windows 10" on 11), so the friendly name is derived from
+        the build + DisplayVersion.  #>
+    $cv = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+    $build = 0
+    try { $build = [int](Get-ItemProperty $cv -Name CurrentBuildNumber -ErrorAction Stop).CurrentBuildNumber } catch {}
+    if ($build -eq 0) { try { $build = [Environment]::OSVersion.Version.Build } catch {} }
+    $disp = ''
+    try { $disp = (Get-ItemProperty $cv -Name DisplayVersion -ErrorAction Stop).DisplayVersion } catch {}
+    $isWin11 = ($build -ge 22000)
+    $Global:Sel01Tweaker.IsWin11 = $isWin11
+    $Global:Sel01Tweaker.OSBuild = $build
+    $Global:Sel01Tweaker.OSName  = ('Windows {0}{1}' -f ($(if ($isWin11) {'11'} else {'10'})), $(if ($disp) {" $disp"} else {''}))
+    return $Global:Sel01Tweaker.OSName
 }
 
 function Initialize-Sel01TweakerState {
@@ -240,13 +261,23 @@ function Restart-Explorer {
 #  Used by the Win11Debloat / RemoveWindowsAI modules (MIT, run as-is).
 # ---------------------------------------------------------------------------
 function Invoke-Remote {
+    # Params is a hashtable splatted by NAME into the downloaded script. Use a
+    # hashtable (not a flat -Flag array) so switch params bind reliably and
+    # array params (e.g. RemoveWindowsAI -Options) pass as real arrays that pass
+    # the script's ValidateSet element-by-element.
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$Url,
-        [string[]]$ArgList = @()
+        [hashtable]$Params = @{}
     )
+    $shown = (($Params.GetEnumerator() | Sort-Object Name | ForEach-Object {
+        if     ($_.Value -is [bool])  { "-$($_.Key)" }
+        elseif ($_.Value -is [array]) { "-$($_.Key) $($_.Value -join ',')" }
+        else                          { "-$($_.Key) $($_.Value)" }
+    }) -join ' ')
+
     if ($Global:Sel01Tweaker.DryRun) {
-        Write-Log "DRYRUN orchestrate $Name : $Url $($ArgList -join ' ')" 'INFO'
+        Write-Log "DRYRUN orchestrate $Name : $Url $shown" 'INFO'
         return
     }
     if (-not (Test-Online)) {
@@ -257,10 +288,10 @@ function Invoke-Remote {
         Write-Log "Downloading $Name ..." 'INFO'
         $code = Invoke-RestMethod -Uri $Url -UseBasicParsing -ErrorAction Stop
         $sb = [scriptblock]::Create($code)
-        Write-Log "Running $Name $($ArgList -join ' ')" 'INFO'
-        & $sb @ArgList
+        Write-Log "Running $Name $shown" 'INFO'
+        & $sb @Params
         Write-Log "$Name finished" 'OK'
-        Add-Change "$Name applied ($($ArgList -join ' '))"
+        Add-Change "$Name applied ($shown)"
     } catch {
         Write-Log "$Name failed: $($_.Exception.Message)" 'WARN'
     }

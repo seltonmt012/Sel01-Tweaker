@@ -3,6 +3,9 @@
 backup-*.json
 log-*.txt
 
+# Release artifacts (built, attached to GitHub releases, not tracked)
+release/
+
 # OS / editor cruft
 Thumbs.db
 desktop.ini

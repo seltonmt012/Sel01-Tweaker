@@ -1,0 +1,10 @@
+# Runtime artifacts (created on target machines, not part of the repo)
+*.log
+backup-*.json
+log-*.txt
+
+# OS / editor cruft
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

@@ -12,12 +12,20 @@ standard Windows Performance Options. See `NOTICE.md` for licenses/attribution.
 
 ## Run it
 
-Open **PowerShell as Administrator** (the script also self-elevates) and:
+**Easiest:** double-click **`START_Sel01-Tweaker.bat`** → confirm the UAC prompt →
+a console menu appears (Gaming / Clean / Testlauf / Rückgängig). It shows an
+**overview of exactly what will run** and asks you to confirm before doing anything.
+
+From a terminal (the script self-elevates):
 
 ```powershell
-# from a local copy
-.\dist\Sel01Tweaker.ps1 -Profile Gaming
+.\dist\Sel01Tweaker.ps1            # interactive menu (overview + confirm)
+.\dist\Sel01Tweaker.ps1 -Profile Gaming   # run a profile directly, no menu
 ```
+
+> First time? Build the single file with **`build.bat`** (double-click). It runs
+> the build with `-ExecutionPolicy Bypass`, which avoids the "running scripts is
+> disabled" / Mark-of-the-Web error you get from PowerShell on downloaded files.
 
 Or, once hosted at a URL, the winutil-style one-liner (supports parameters):
 

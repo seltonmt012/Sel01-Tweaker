@@ -1,28 +1,25 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Sel01Tweaker - one-click Windows 11 debloat + performance optimizer.
+    Sel01-Tweaker - one-click, unattended Windows 11 debloat + performance optimizer.
 .DESCRIPTION
-    Runs a single unattended pass: debloat (Win11Debloat), AI removal
-    (RemoveWindowsAI), native winutil-style tweaks, performance/visual effects,
-    Ultimate Performance power plan, gaming tweaks, and a native RAM cleaner.
-    Creates a System Restore point and a registry backup enabling -Revert.
-.PARAMETER Profile
-    Gaming (default) keeps Game Mode + HAGS on and is gentler on services.
-    Clean is maximum debloat.
-.PARAMETER Revert
-    Undo a previous run from the latest backup JSON.
+    Runs a single pass: debloat, AI removal, native tweaks, performance/visual
+    effects, power plan, gaming + FiveM tweaks, and a native RAM cleaner.
+    Creates a System Restore point and a per-value registry backup (-Revert).
+
+    No -Profile  -> interactive console menu (overview + confirm before running).
+    -Profile X   -> runs that profile directly (for the irm|iex one-liner).
 .EXAMPLE
-    & ([scriptblock]::Create((irm https://example/twerk.ps1))) -Profile Gaming
+    .\Sel01Tweaker.ps1                 # interactive menu
 .EXAMPLE
-    .\Sel01Tweaker.ps1 -Profile Clean
+    & ([scriptblock]::Create((irm https://URL/Sel01Tweaker.ps1))) -Profile Gaming
 .EXAMPLE
     .\Sel01Tweaker.ps1 -Revert
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Gaming','Clean')]
-    [string]$Profile = 'Gaming',
+    [ValidateSet('Gaming','Clean','')]
+    [string]$Profile = '',
     [switch]$Revert,
     [switch]$NoRestore,
     [switch]$SkipDebloat,
@@ -940,8 +937,8 @@ function Invoke-Module-FiveM {
 
 
 # ---------------------------------------------------------------------------
-#  Load parts. When bundled into dist\Sel01Tweaker.ps1 the functions already exist,
-#  so dot-sourcing is skipped. When running from src\, pull lib + modules.
+#  Load parts. When bundled into dist\Sel01Tweaker.ps1 the functions already
+#  exist, so dot-sourcing is skipped. When running from src\, pull lib+modules.
 # ---------------------------------------------------------------------------
 if (-not (Get-Command Invoke-Module-Performance -ErrorAction SilentlyContinue)) {
     $root = $PSScriptRoot
@@ -950,14 +947,139 @@ if (-not (Get-Command Invoke-Module-Performance -ErrorAction SilentlyContinue)) 
     Get-ChildItem (Join-Path $root 'modules') -Filter '*.ps1' | Sort-Object Name | ForEach-Object { . $_.FullName }
 }
 
+# ===========================================================================
+#  Console UI
+# ===========================================================================
+function Show-Banner {
+    Clear-Host
+    Write-Host ''
+    Write-Host '   ====================================================' -ForegroundColor DarkCyan
+    Write-Host '        ____  ____ _     ___  _      _____         ' -ForegroundColor Cyan
+    Write-Host '       / ___|| ___| |   / _ \/ |    |_   _|_      __' -ForegroundColor Cyan
+    Write-Host '       \___ \|___ \ |  | | | | |_____ | | \ \ /\ / /' -ForegroundColor Cyan
+    Write-Host '        ___) |___) | |__| |_| | |_____|| |  \ V  V / ' -ForegroundColor Cyan
+    Write-Host '       |____/|____/|_____\___/|_|      |_|   \_/\_/  ' -ForegroundColor Cyan
+    Write-Host '   ====================================================' -ForegroundColor DarkCyan
+    Write-Host '        Windows 11  -  1-Klick Optimierung' -ForegroundColor White
+    Write-Host '   ====================================================' -ForegroundColor DarkCyan
+    Write-Host ''
+}
+
+function Show-Credits {
+    Write-Host ''
+    Write-Host '   ----------------------------------------------------' -ForegroundColor DarkGray
+    Write-Host '   Sel01-Tweaker  -  by seltonmt012' -ForegroundColor DarkGray
+    Write-Host '   github.com/seltonmt012/Sel01-Tweaker' -ForegroundColor DarkGray
+    Write-Host ''
+}
+
+function Show-MainMenu {
+    Show-Banner
+    Write-Host '   Was moechtest du tun?' -ForegroundColor White
+    Write-Host ''
+    Write-Host '     [1] ' -ForegroundColor Green -NoNewline; Write-Host 'GAMING       ' -ForegroundColor White -NoNewline; Write-Host '- empfohlen. Game Mode + HAGS bleiben an.' -ForegroundColor Gray
+    Write-Host '     [2] ' -ForegroundColor Green -NoNewline; Write-Host 'CLEAN        ' -ForegroundColor White -NoNewline; Write-Host '- maximales Debloat (Office/Allround).' -ForegroundColor Gray
+    Write-Host '     [3] ' -ForegroundColor Yellow -NoNewline; Write-Host 'TESTLAUF     ' -ForegroundColor White -NoNewline; Write-Host '- zeigt nur an, aendert NICHTS.' -ForegroundColor Gray
+    Write-Host '     [4] ' -ForegroundColor Cyan -NoNewline; Write-Host 'RUECKGAENGIG ' -ForegroundColor White -NoNewline; Write-Host '- letzten Lauf wieder zurueck.' -ForegroundColor Gray
+    Write-Host '     [5] ' -ForegroundColor DarkGray -NoNewline; Write-Host 'BEENDEN' -ForegroundColor White
+    Show-Credits
+    return (Read-Host '   Deine Wahl (1-5)')
+}
+
+function Show-Overview {
+    param([string]$P,[bool]$Dry)
+    Show-Banner
+    $head = if ($Dry) { 'TESTLAUF (Gaming) - es wird NICHTS geaendert, nur angezeigt' }
+            else       { "PROFIL: $($P.ToUpper())" }
+    Write-Host "   UEBERSICHT - das wird gemacht:" -ForegroundColor White
+    Write-Host "   $head" -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host '   Vorher: System-Wiederherstellungspunkt + Backup (fuer Rueckgaengig)' -ForegroundColor DarkGray
+    Write-Host ''
+    Write-Host '    1. Debloat       ' -ForegroundColor Cyan -NoNewline; Write-Host 'Bloat-Apps, Telemetrie, Bing/Werbung entfernen (Download)' -ForegroundColor Gray
+    Write-Host '    2. KI entfernen  ' -ForegroundColor Cyan -NoNewline; Write-Host 'Copilot, Recall, KI-Tasks entfernen (Download)' -ForegroundColor Gray
+    Write-Host '    3. System-Tweaks ' -ForegroundColor Cyan -NoNewline; Write-Host 'Telemetrie/Tracking/Werbe-ID/Standort aus' -ForegroundColor Gray
+    Write-Host '    4. Performance   ' -ForegroundColor Cyan -NoNewline; Write-Host 'Beste-Leistung-Optik (3 Effekte bleiben an), kein Input-Delay' -ForegroundColor Gray
+    Write-Host '    5. Power-Plan    ' -ForegroundColor Cyan -NoNewline; Write-Host 'Ultimate Performance' -ForegroundColor Gray
+    if ($P -eq 'Clean') {
+        Write-Host '    6. Gaming        ' -ForegroundColor Cyan -NoNewline; Write-Host 'GameDVR aus; Game Mode + HAGS AUS (Clean); MMCSS' -ForegroundColor Gray
+        Write-Host '    7. FiveM         ' -ForegroundColor DarkGray -NoNewline; Write-Host 'uebersprungen (nur im Gaming-Profil)' -ForegroundColor DarkGray
+        Write-Host '       + extra      ' -ForegroundColor Cyan -NoNewline; Write-Host 'Hintergrund-Apps aus, mehr Dienste auf Manuell' -ForegroundColor Gray
+    } else {
+        Write-Host '    6. Gaming        ' -ForegroundColor Cyan -NoNewline; Write-Host 'GameDVR aus; Game Mode + HAGS AN; MMCSS (audio-sicher)' -ForegroundColor Gray
+        Write-Host '    7. FiveM         ' -ForegroundColor Cyan -NoNewline; Write-Host 'FSO/GPU/Prioritaet/Netzwerk (nur wenn FiveM installiert)' -ForegroundColor Gray
+    }
+    Write-Host '    8. RAM-Cleaner   ' -ForegroundColor Cyan -NoNewline; Write-Host 'Speicher leeren + stuendlicher Hintergrund-Task' -ForegroundColor Gray
+    Write-Host ''
+    Write-Host '   Danach: Neustart empfohlen.  Rueckgaengig jederzeit mit Option [4].' -ForegroundColor DarkGray
+    Show-Credits
+    $a = Read-Host '   ENTER = STARTEN   |   X = Abbrechen'
+    return ($a -notmatch '^[xX]')
+}
+
+# ===========================================================================
+#  Pipeline
+# ===========================================================================
+function Initialize-Run {
+    $Global:Sel01Tweaker.Stamp = (Get-Date -Format 'yyyyMMdd-HHmmss')
+    Initialize-Sel01TweakerState -Stamp $Global:Sel01Tweaker.Stamp
+}
+
+function Invoke-Pipeline {
+    param([string]$Profile,[bool]$DryRun)
+
+    Initialize-Run
+    $Global:Sel01Tweaker.Profile = $Profile
+    $Global:Sel01Tweaker.DryRun  = $DryRun
+    $Global:Sel01Tweaker.Backup  = [System.Collections.Generic.List[object]]::new()
+    $Global:Sel01Tweaker.Changes = [System.Collections.Generic.List[string]]::new()
+
+    Write-Log "Sel01-Tweaker | Profile=$Profile | DryRun=$DryRun" 'STEP'
+
+    if (-not $Global:Sel01Tweaker.NoRestore) { New-Sel01TweakerRestorePoint }
+    else { Write-Log 'Restore point skipped (-NoRestore)' 'WARN' }
+
+    $steps = @(
+        @{ Name='Debloat';       Skip=$Global:Sel01Tweaker.SkipDebloat; Run={ Invoke-Module-Debloat } },
+        @{ Name='RemoveAI';      Skip=$Global:Sel01Tweaker.SkipAI;      Run={ Invoke-Module-RemoveAI } },
+        @{ Name='WinutilTweaks'; Skip=$false;                           Run={ Invoke-Module-WinutilTweaks } },
+        @{ Name='Performance';   Skip=$false;                           Run={ Invoke-Module-Performance } },
+        @{ Name='PowerPlan';     Skip=$false;                           Run={ Invoke-Module-PowerPlan } },
+        @{ Name='Gaming';        Skip=$false;                           Run={ Invoke-Module-Gaming } },
+        @{ Name='FiveM';         Skip=$Global:Sel01Tweaker.SkipFiveM;   Run={ Invoke-Module-FiveM } },
+        @{ Name='RamCleaner';    Skip=$false;                           Run={ Invoke-Module-RamCleaner -NoTask:$Global:Sel01Tweaker.NoRamTask } }
+    )
+    foreach ($s in $steps) {
+        if ($s.Skip) { Write-Log "Skipping $($s.Name)" 'WARN'; continue }
+        try { & $s.Run } catch { Write-Log "$($s.Name) crashed: $($_.Exception.Message)" 'ERROR' }
+    }
+
+    Broadcast-SettingChange
+    Restart-Explorer
+    Save-Sel01TweakerBackup
+
+    Write-Host ''
+    Write-Log '============ FERTIG - Zusammenfassung ============' 'STEP'
+    foreach ($c in $Global:Sel01Tweaker.Changes) { Write-Log " - $c" 'OK' }
+    Write-Log "Backup: $($Global:Sel01Tweaker.BackupFile)" 'INFO'
+    Write-Log "Log:    $($Global:Sel01Tweaker.LogFile)" 'INFO'
+    if ($Global:Sel01Tweaker.RebootNeeded) { Write-Log 'NEUSTART empfohlen (HAGS / Power-Plan).' 'WARN' }
+    Write-Log 'Rueckgaengig: Menue-Option [4] oder  -Revert' 'INFO'
+    Write-Log 'Done.' 'OK'
+}
+
+# ===========================================================================
+#  Entry
+# ===========================================================================
 function Start-Sel01Tweaker {
     param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$NoRamTask,$DryRun)
 
     # --- Self-elevate -----------------------------------------------------
     if (-not (Test-Admin)) {
         if ($PSCommandPath) {
-            Write-Host 'Sel01Tweaker needs administrator rights - relaunching elevated...' -ForegroundColor Yellow
-            $argline = @("-NoProfile","-ExecutionPolicy","Bypass","-File","`"$PSCommandPath`"","-Profile",$Profile)
+            Write-Host 'Sel01-Tweaker braucht Administrator-Rechte - starte neu...' -ForegroundColor Yellow
+            $argline = @("-NoProfile","-ExecutionPolicy","Bypass","-File","`"$PSCommandPath`"")
+            if ($Profile)     { $argline += @('-Profile',$Profile) }
             if ($Revert)      { $argline += '-Revert' }
             if ($NoRestore)   { $argline += '-NoRestore' }
             if ($SkipDebloat) { $argline += '-SkipDebloat' }
@@ -968,57 +1090,54 @@ function Start-Sel01Tweaker {
             Start-Process powershell.exe -Verb RunAs -ArgumentList $argline
             return
         } else {
-            Write-Host 'ERROR: Run this in an ELEVATED PowerShell (Run as Administrator).' -ForegroundColor Red
+            Write-Host 'FEHLER: In einer ERHOEHTEN PowerShell ausfuehren (Als Administrator).' -ForegroundColor Red
             return
         }
     }
 
-    # --- State init -------------------------------------------------------
-    $Global:Sel01Tweaker.Profile = $Profile
-    $Global:Sel01Tweaker.DryRun  = [bool]$DryRun
-    $Global:Sel01Tweaker.Stamp   = (Get-Date -Format 'yyyyMMdd-HHmmss')
-    Initialize-Sel01TweakerState -Stamp $Global:Sel01Tweaker.Stamp
+    # --- Stash run-wide options in state ----------------------------------
+    $Global:Sel01Tweaker.NoRestore   = [bool]$NoRestore
+    $Global:Sel01Tweaker.SkipDebloat = [bool]$SkipDebloat
+    $Global:Sel01Tweaker.SkipAI      = [bool]$SkipAI
+    $Global:Sel01Tweaker.SkipFiveM   = [bool]$SkipFiveM
+    $Global:Sel01Tweaker.NoRamTask   = [bool]$NoRamTask
 
-    Write-Log "Sel01Tweaker starting | Profile=$Profile | DryRun=$($Global:Sel01Tweaker.DryRun)" 'STEP'
+    # --- Revert -----------------------------------------------------------
+    if ($Revert) { Initialize-Run; Invoke-Revert; return }
 
-    # --- Revert branch ----------------------------------------------------
-    if ($Revert) {
-        Invoke-Revert
+    # --- Direct (non-interactive) profile run -----------------------------
+    if ($Profile -eq 'Gaming' -or $Profile -eq 'Clean') {
+        Invoke-Pipeline -Profile $Profile -DryRun:([bool]$DryRun)
         return
     }
 
-    # --- Safety -----------------------------------------------------------
-    if (-not $NoRestore) { New-Sel01TweakerRestorePoint } else { Write-Log 'Restore point skipped (-NoRestore)' 'WARN' }
-
-    # --- Run modules (failures non-fatal) ---------------------------------
-    $steps = @(
-        @{ Name='Debloat';    Skip=$SkipDebloat; Run={ Invoke-Module-Debloat } },
-        @{ Name='RemoveAI';   Skip=$SkipAI;      Run={ Invoke-Module-RemoveAI } },
-        @{ Name='WinutilTweaks'; Skip=$false;    Run={ Invoke-Module-WinutilTweaks } },
-        @{ Name='Performance';   Skip=$false;    Run={ Invoke-Module-Performance } },
-        @{ Name='PowerPlan';     Skip=$false;    Run={ Invoke-Module-PowerPlan } },
-        @{ Name='Gaming';        Skip=$false;    Run={ Invoke-Module-Gaming } },
-        @{ Name='FiveM';         Skip=$SkipFiveM; Run={ Invoke-Module-FiveM } },
-        @{ Name='RamCleaner';    Skip=$false;    Run={ Invoke-Module-RamCleaner -NoTask:$NoRamTask } }
-    )
-    foreach ($s in $steps) {
-        if ($s.Skip) { Write-Log "Skipping $($s.Name)" 'WARN'; continue }
-        try { & $s.Run } catch { Write-Log "$($s.Name) crashed: $($_.Exception.Message)" 'ERROR' }
+    # --- Interactive menu -------------------------------------------------
+    # Guard: if there's no real console (stdin redirected/piped), Read-Host
+    # returns empty forever and the menu would spin. Bail with guidance.
+    try { $redir = [Console]::IsInputRedirected } catch { $redir = $false }
+    if ($redir) {
+        Write-Host 'Kein interaktives Terminal erkannt.' -ForegroundColor Yellow
+        Write-Host 'Direkt nutzen:  -Profile Gaming   |   -Profile Clean   |   -Revert' -ForegroundColor Yellow
+        return
     }
 
-    # --- Apply live + persist backup --------------------------------------
-    Broadcast-SettingChange
-    Restart-Explorer
-    Save-Sel01TweakerBackup
-
-    # --- Summary ----------------------------------------------------------
-    Write-Log '============ SUMMARY ============' 'STEP'
-    foreach ($c in $Global:Sel01Tweaker.Changes) { Write-Log " - $c" 'OK' }
-    Write-Log "Backup: $($Global:Sel01Tweaker.BackupFile)" 'INFO'
-    Write-Log "Log:    $($Global:Sel01Tweaker.LogFile)" 'INFO'
-    Write-Log "Undo with:  .\Sel01Tweaker.ps1 -Revert" 'INFO'
-    if ($Global:Sel01Tweaker.RebootNeeded) { Write-Log 'REBOOT recommended (HAGS / power plan).' 'WARN' }
-    Write-Log 'Done.' 'OK'
+    while ($true) {
+        $c = Show-MainMenu
+        switch ($c.Trim()) {
+            '1' { if (Show-Overview -P 'Gaming' -Dry $false) { Invoke-Pipeline -Profile 'Gaming' -DryRun $false; Read-Host "`n   ENTER zum Menue" } }
+            '2' { if (Show-Overview -P 'Clean'  -Dry $false) { Invoke-Pipeline -Profile 'Clean'  -DryRun $false; Read-Host "`n   ENTER zum Menue" } }
+            '3' { if (Show-Overview -P 'Gaming' -Dry $true)  { Invoke-Pipeline -Profile 'Gaming' -DryRun $true;  Read-Host "`n   ENTER zum Menue" } }
+            '4' {
+                Show-Banner
+                Write-Host '   RUECKGAENGIG - letzten Lauf zurueckdrehen.' -ForegroundColor Cyan
+                if ((Read-Host '   ENTER = los, X = Abbrechen') -notmatch '^[xX]') {
+                    Initialize-Run; Invoke-Revert; Read-Host "`n   ENTER zum Menue"
+                }
+            }
+            '5' { return }
+            default { if ($c -match '^[xX]$') { return } }
+        }
+    }
 }
 
 Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -SkipFiveM:$SkipFiveM -NoRamTask:$NoRamTask -DryRun:$DryRun

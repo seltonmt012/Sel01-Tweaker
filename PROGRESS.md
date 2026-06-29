@@ -64,6 +64,9 @@ Commit message style: `step: <what>` (e.g. `step: add module 08 network tweaks`)
 - [x] `CLAUDE.md` (commands, architecture, invariants) `4afa58c`
 - [x] `START_Sel01-Tweaker.bat` — double-click launcher, self-elevates, 1-5 menu (Gaming/Clean/DryRun/Revert)
 - [x] `ANLEITUNG.md` — dead-simple German beginner guide (visual menu, FAQ, confirms perf settings auto-applied)
+- [x] **Interactive console UI** in the dist: banner + menu (Gaming/Clean/Testlauf/Revert/Exit), an **overview screen** listing exactly what each step does before running, confirm prompt, small credits footer. Non-interactive guard (stdin redirected → exits cleanly, no loop). `-Profile X` still runs directly for the one-liner.
+- [x] **build.bat** + simplified **START_Sel01-Tweaker.bat** — both launch PowerShell with `-ExecutionPolicy Bypass` (fixes the "scripts disabled" / Mark-of-the-Web build error from downloaded files). Launcher just elevates + runs the dist (UI lives in the ps1).
+- [x] Fixed launcher **elevation loop** (cmd reopening forever): `net session` fails as admin when LanmanServer is off → replaced with `fltmc` + an `elevated` arg-guard.
 - [x] **Module 08-FiveM** (Gaming only) — safe FiveM tweaks: per-app FSO off + High-Perf GPU (real exe paths), TdrDelay=8 (crash guard, NOT TdrLevel=0), IFEO CpuPriorityClass=6 (Above Normal), TcpAckFrequency/TcpNoDelay on the **active** adapter only. `-SkipFiveM` flag. Researched via 3 fan-out subagents; verified DryRun (FiveM detected on this box, Clean skips).
 - [x] Fixed module 06 `SystemResponsiveness` 0 → **10** (0 starves MMCSS audio → crackle)
 - [x] **Renamed** project Twerk/Sel01-Solver → **Sel01-Tweaker** (repo github.com/seltonmt012/Sel01-Tweaker). Code token `Twerk`→`Sel01Tweaker`, files `Sel01Tweaker.ps1`/`Sel01Tweaker.Tests.ps1`/`START_Sel01-Tweaker.bat`, data dir `%ProgramData%\Sel01Tweaker`, namespaces `Sel01Tweaker.*`. Rebuilt + retested (all checks pass, 7 modules ok, RAM type compiles).

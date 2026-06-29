@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
   build.ps1 - bundle src\ into a single dist\Sel01Tweaker.ps1 for one-liner use:
-      & ([scriptblock]::Create((irm <url>/Sel01Tweaker.ps1))) -Profile Gaming
+      & ([scriptblock]::Create((irm https://github.com/seltonmt012/Sel01-Tweaker/releases/latest/download/Sel01Tweaker.ps1))) -Profile Gaming
 
   Inserts lib + modules at the #__SEL01TWEAKER_BUNDLE_INSERT__ marker so the entry's
   param() block stays the first statement in the file.

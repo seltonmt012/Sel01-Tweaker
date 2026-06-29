@@ -30,14 +30,15 @@ From a terminal (the script self-elevates):
 > the build with `-ExecutionPolicy Bypass`, which avoids the "running scripts is
 > disabled" / Mark-of-the-Web error you get from PowerShell on downloaded files.
 
-Or, once hosted at a URL, the winutil-style one-liner (supports parameters):
+Or run it straight from GitHub, winutil-style (supports parameters):
 
 ```powershell
-& ([scriptblock]::Create((irm https://YOUR-URL/Sel01Tweaker.ps1))) -Profile Gaming
+& ([scriptblock]::Create((irm https://github.com/seltonmt012/Sel01-Tweaker/releases/latest/download/Sel01Tweaker.ps1))) -Profile Gaming
 ```
 
-> The plain `irm <url> | iex` form runs the default Gaming profile but cannot
-> pass parameters - use the `scriptblock` form above when you need flags.
+> Run that in an elevated PowerShell. The plain
+> `irm https://github.com/seltonmt012/Sel01-Tweaker/releases/latest/download/Sel01Tweaker.ps1 | iex`
+> form works too but can't pass flags, so use the `scriptblock` form above when you need `-Profile Clean`, `-Revert`, etc.
 
 ## Profiles
 

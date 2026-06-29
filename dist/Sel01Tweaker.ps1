@@ -12,7 +12,7 @@
 .EXAMPLE
     .\Sel01Tweaker.ps1                 # interactive menu
 .EXAMPLE
-    & ([scriptblock]::Create((irm https://URL/Sel01Tweaker.ps1))) -Profile Gaming
+    & ([scriptblock]::Create((irm https://github.com/seltonmt012/Sel01-Tweaker/releases/latest/download/Sel01Tweaker.ps1))) -Profile Gaming
 .EXAMPLE
     .\Sel01Tweaker.ps1 -Revert
 #>
@@ -49,7 +49,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.1.2'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.1.3'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')

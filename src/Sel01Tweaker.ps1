@@ -12,7 +12,7 @@
 .EXAMPLE
     .\Sel01Tweaker.ps1                 # interactive menu
 .EXAMPLE
-    & ([scriptblock]::Create((irm https://URL/Sel01Tweaker.ps1))) -Profile Gaming
+    & ([scriptblock]::Create((irm https://github.com/seltonmt012/Sel01-Tweaker/releases/latest/download/Sel01Tweaker.ps1))) -Profile Gaming
 .EXAMPLE
     .\Sel01Tweaker.ps1 -Revert
 #>

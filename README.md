@@ -1,4 +1,4 @@
-# Twerk — One-Click Windows 11 Optimizer
+# Sel01Tweaker — One-Click Windows 11 Optimizer
 
 One command. Runs once, unattended. Debloats, removes Windows AI/Copilot,
 applies performance + visual-effects tweaks, sets the Ultimate Performance power
@@ -16,13 +16,13 @@ Open **PowerShell as Administrator** (the script also self-elevates) and:
 
 ```powershell
 # from a local copy
-.\dist\Twerk.ps1 -Profile Gaming
+.\dist\Sel01Tweaker.ps1 -Profile Gaming
 ```
 
 Or, once hosted at a URL, the winutil-style one-liner (supports parameters):
 
 ```powershell
-& ([scriptblock]::Create((irm https://YOUR-URL/Twerk.ps1))) -Profile Gaming
+& ([scriptblock]::Create((irm https://YOUR-URL/Sel01Tweaker.ps1))) -Profile Gaming
 ```
 
 > The plain `irm <url> | iex` form runs the default Gaming profile but cannot
@@ -36,7 +36,7 @@ Or, once hosted at a URL, the winutil-style one-liner (supports parameters):
 | **Clean** | Office / all-round | Max debloat: Game Bar/DVR fully off, background apps off, fuller AI removal, more services to Manual, telemetry tasks disabled, hibernation off. |
 
 ```powershell
-.\dist\Twerk.ps1 -Profile Clean
+.\dist\Sel01Tweaker.ps1 -Profile Clean
 ```
 
 ## Flags
@@ -54,7 +54,7 @@ Or, once hosted at a URL, the winutil-style one-liner (supports parameters):
 ## Undo
 
 ```powershell
-.\dist\Twerk.ps1 -Revert
+.\dist\Sel01Tweaker.ps1 -Revert
 ```
 
 Restores every changed registry value, deletes the minted power scheme (back to
@@ -79,21 +79,21 @@ needed.
 ## Files
 
 ```
-src/Twerk.ps1          entry (self-elevate, flow, summary)
+src/Sel01Tweaker.ps1          entry (self-elevate, flow, summary)
 src/lib/Common.ps1     logging, Set-Reg (typed+snapshot), P/Invoke, orchestration
 src/lib/Backup.ps1     restore point, backup JSON, -Revert
 src/modules/01..07     the seven stages
-build.ps1              bundles src -> dist/Twerk.ps1 (single file, syntax-checked)
-dist/Twerk.ps1         generated one-file distributable
+build.ps1              bundles src -> dist/Sel01Tweaker.ps1 (single file, syntax-checked)
+dist/Sel01Tweaker.ps1         generated one-file distributable
 tests/                 Pester tests (non-destructive)
 ```
 
-Backups + logs live in `%ProgramData%\Twerk\`.
+Backups + logs live in `%ProgramData%\Sel01Tweaker\`.
 
 ## Build
 
 ```powershell
-.\build.ps1            # -> dist\Twerk.ps1, validates syntax
+.\build.ps1            # -> dist\Sel01Tweaker.ps1, validates syntax
 ```
 
 ## Caveats

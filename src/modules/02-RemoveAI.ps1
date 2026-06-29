@@ -9,7 +9,7 @@ function Invoke-Module-RemoveAI {
 
     $url = 'https://raw.githubusercontent.com/zoicware/RemoveWindowsAI/main/RemoveWindowsAi.ps1'
 
-    if ($Global:Twerk.Profile -eq 'Clean') {
+    if ($Global:Sel01Tweaker.Profile -eq 'Clean') {
         $args = @('-nonInteractive', '-AllOptions')
     } else {
         # Gaming: strip Copilot/Recall + re-add protection, but skip the heaviest

@@ -1,44 +1,44 @@
 # ============================================================================
-#  Twerk - lib/Backup.ps1
+#  Sel01Tweaker - lib/Backup.ps1
 #  System Restore point creation, backup-JSON persistence, and -Revert.
-#  Depends on Common.ps1 ($Global:Twerk state, Write-Log, Set-Reg helpers).
+#  Depends on Common.ps1 ($Global:Sel01Tweaker state, Write-Log, Set-Reg helpers).
 # ============================================================================
 
-function New-TwerkRestorePoint {
+function New-Sel01TweakerRestorePoint {
     <#  Ensures System Restore is enabled on the system drive, then snapshots.
         Windows rate-limits restore points to one per 24h by default; we relax
         that for this run so the checkpoint is guaranteed to take.  #>
-    if ($Global:Twerk.DryRun) { Write-Log 'DRYRUN restore point' 'INFO'; return }
+    if ($Global:Sel01Tweaker.DryRun) { Write-Log 'DRYRUN restore point' 'INFO'; return }
     try {
         Write-Log 'Creating System Restore point...' 'STEP'
         Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction SilentlyContinue
         # Relax the 24h frequency gate so the checkpoint is not silently skipped.
         Set-Reg -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' `
                 -Name 'SystemRestorePointCreationFrequency' -Type DWord -Value 0
-        Checkpoint-Computer -Description 'Twerk - before optimization' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop
+        Checkpoint-Computer -Description 'Sel01Tweaker - before optimization' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop
         Write-Log 'Restore point created' 'OK'
     } catch {
         Write-Log "Restore point failed (continuing): $($_.Exception.Message)" 'WARN'
     }
 }
 
-function Save-TwerkBackup {
+function Save-Sel01TweakerBackup {
     <#  Writes the accumulated registry snapshots + run metadata to the backup
         JSON.  Called at the end of a run so -Revert has a manifest.  #>
-    if ($Global:Twerk.DryRun) { Write-Log 'DRYRUN skip backup write' 'INFO'; return }
+    if ($Global:Sel01Tweaker.DryRun) { Write-Log 'DRYRUN skip backup write' 'INFO'; return }
     $obj = [ordered]@{
-        Profile  = $Global:Twerk.Profile
-        Created  = $Global:Twerk.Stamp
-        PowerSchemeGuid = $Global:Twerk.PowerSchemeGuid   # minted Ultimate-Performance GUID, if any
-        RamTask  = $Global:Twerk.RamTaskName              # scheduled task name, if created
-        Registry = $Global:Twerk.Backup
+        Profile  = $Global:Sel01Tweaker.Profile
+        Created  = $Global:Sel01Tweaker.Stamp
+        PowerSchemeGuid = $Global:Sel01Tweaker.PowerSchemeGuid   # minted Ultimate-Performance GUID, if any
+        RamTask  = $Global:Sel01Tweaker.RamTaskName              # scheduled task name, if created
+        Registry = $Global:Sel01Tweaker.Backup
     }
-    $obj | ConvertTo-Json -Depth 6 | Set-Content -Path $Global:Twerk.BackupFile -Encoding UTF8
-    Write-Log "Backup written: $($Global:Twerk.BackupFile)" 'OK'
+    $obj | ConvertTo-Json -Depth 6 | Set-Content -Path $Global:Sel01Tweaker.BackupFile -Encoding UTF8
+    Write-Log "Backup written: $($Global:Sel01Tweaker.BackupFile)" 'OK'
 }
 
 function Get-LatestBackup {
-    $files = Get-ChildItem -Path $Global:Twerk.DataDir -Filter 'backup-*.json' -ErrorAction SilentlyContinue |
+    $files = Get-ChildItem -Path $Global:Sel01Tweaker.DataDir -Filter 'backup-*.json' -ErrorAction SilentlyContinue |
              Sort-Object LastWriteTime -Descending
     if (-not $files) { return $null }
     return $files[0].FullName

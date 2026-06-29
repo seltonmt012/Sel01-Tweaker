@@ -1,19 +1,19 @@
 # ============================================================================
-#  Twerk - lib/Common.ps1
+#  Sel01Tweaker - lib/Common.ps1
 #  Shared helpers: state, logging, registry (typed + snapshot), P/Invoke,
 #  remote-script orchestration, preferences-mask builder.
-#  All modules dot-source this file and share $Global:Twerk state.
+#  All modules dot-source this file and share $Global:Sel01Tweaker state.
 # ============================================================================
 
 # ---------------------------------------------------------------------------
-#  Global state (initialised by Twerk.ps1, but guarded here so modules can be
+#  Global state (initialised by Sel01Tweaker.ps1, but guarded here so modules can be
 #  dot-sourced and unit-tested in isolation).
 # ---------------------------------------------------------------------------
-if (-not $Global:Twerk) {
-    $Global:Twerk = [ordered]@{
+if (-not $Global:Sel01Tweaker) {
+    $Global:Sel01Tweaker = [ordered]@{
         Profile   = 'Gaming'
         DryRun    = $false
-        DataDir   = (Join-Path $env:ProgramData 'Twerk')
+        DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
         LogFile   = $null
         BackupFile= $null
         Backup    = [System.Collections.Generic.List[object]]::new()
@@ -22,16 +22,16 @@ if (-not $Global:Twerk) {
     }
 }
 
-function Initialize-TwerkState {
+function Initialize-Sel01TweakerState {
     <#  Creates the data dir and timestamped log/backup file paths.
         Timestamp is passed in (Date.now-style calls are avoided in scripted
         contexts; the entry point supplies it).  #>
     param([string]$Stamp)
-    if (-not (Test-Path $Global:Twerk.DataDir)) {
-        New-Item -ItemType Directory -Path $Global:Twerk.DataDir -Force | Out-Null
+    if (-not (Test-Path $Global:Sel01Tweaker.DataDir)) {
+        New-Item -ItemType Directory -Path $Global:Sel01Tweaker.DataDir -Force | Out-Null
     }
-    $Global:Twerk.LogFile    = Join-Path $Global:Twerk.DataDir "log-$Stamp.txt"
-    $Global:Twerk.BackupFile = Join-Path $Global:Twerk.DataDir "backup-$Stamp.json"
+    $Global:Sel01Tweaker.LogFile    = Join-Path $Global:Sel01Tweaker.DataDir "log-$Stamp.txt"
+    $Global:Sel01Tweaker.BackupFile = Join-Path $Global:Sel01Tweaker.DataDir "backup-$Stamp.json"
 }
 
 # ---------------------------------------------------------------------------
@@ -51,14 +51,14 @@ function Write-Log {
         default { 'Gray' }
     }
     Write-Host $line -ForegroundColor $color
-    if ($Global:Twerk.LogFile) {
-        Add-Content -Path $Global:Twerk.LogFile -Value $line -Encoding UTF8
+    if ($Global:Sel01Tweaker.LogFile) {
+        Add-Content -Path $Global:Sel01Tweaker.LogFile -Value $line -Encoding UTF8
     }
 }
 
 function Add-Change {
     param([string]$Text)
-    $Global:Twerk.Changes.Add($Text) | Out-Null
+    $Global:Sel01Tweaker.Changes.Add($Text) | Out-Null
 }
 
 # ---------------------------------------------------------------------------
@@ -122,7 +122,7 @@ function Set-Reg {
     $prior = Get-RegValueSafe -Path $Path -Name $Name
 
     # Record snapshot once per (Path,Name) so first-seen original wins.
-    $already = $Global:Twerk.Backup | Where-Object { $_.Path -eq $Path -and $_.Name -eq $Name }
+    $already = $Global:Sel01Tweaker.Backup | Where-Object { $_.Path -eq $Path -and $_.Name -eq $Name }
     if (-not $already) {
         $snap = [ordered]@{
             Path    = $Path
@@ -131,13 +131,13 @@ function Set-Reg {
             OldType = if ($prior.Kind) { "$($prior.Kind)" } else { $null }
             OldValue= if ($prior.Exists) { $prior.Value } else { $null }
         }
-        $Global:Twerk.Backup.Add([pscustomobject]$snap) | Out-Null
+        $Global:Sel01Tweaker.Backup.Add([pscustomobject]$snap) | Out-Null
     }
 
     $display = if ($Type -eq 'Binary') { ($Value | ForEach-Object { '{0:X2}' -f $_ }) -join ' ' } else { "$Value" }
     $label = "$Path\$Name = $display ($Type)"
 
-    if ($Global:Twerk.DryRun) {
+    if ($Global:Sel01Tweaker.DryRun) {
         Write-Log "DRYRUN reg: $label" 'INFO'
         return
     }
@@ -156,15 +156,15 @@ function Remove-Reg {
     <#  Deletes a value; snapshots first so revert can re-create it.  #>
     param([string]$Path,[string]$Name,[string]$Note)
     $prior = Get-RegValueSafe -Path $Path -Name $Name
-    $already = $Global:Twerk.Backup | Where-Object { $_.Path -eq $Path -and $_.Name -eq $Name }
+    $already = $Global:Sel01Tweaker.Backup | Where-Object { $_.Path -eq $Path -and $_.Name -eq $Name }
     if (-not $already) {
-        $Global:Twerk.Backup.Add([pscustomobject]@{
+        $Global:Sel01Tweaker.Backup.Add([pscustomobject]@{
             Path=$Path; Name=$Name; Existed=$prior.Exists
             OldType= if ($prior.Kind) { "$($prior.Kind)" } else { $null }
             OldValue= if ($prior.Exists) { $prior.Value } else { $null }
         }) | Out-Null
     }
-    if ($Global:Twerk.DryRun) { Write-Log "DRYRUN reg-del: $Path\$Name" 'INFO'; return }
+    if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN reg-del: $Path\$Name" 'INFO'; return }
     if ((Test-Path $Path) -and $prior.Exists) {
         Remove-ItemProperty -Path $Path -Name $Name -Force -ErrorAction SilentlyContinue
         Write-Log "reg-del: $Path\$Name" 'INFO'
@@ -209,9 +209,9 @@ function Build-PreferencesMask {
 #  Broadcast WM_SETTINGCHANGE so UI picks up changes without sign-out.
 # ---------------------------------------------------------------------------
 function Broadcast-SettingChange {
-    if ($Global:Twerk.DryRun) { return }
-    if (-not ([System.Management.Automation.PSTypeName]'Twerk.Native').Type) {
-        Add-Type -Namespace Twerk -Name Native -MemberDefinition @'
+    if ($Global:Sel01Tweaker.DryRun) { return }
+    if (-not ([System.Management.Automation.PSTypeName]'Sel01Tweaker.Native').Type) {
+        Add-Type -Namespace Sel01Tweaker -Name Native -MemberDefinition @'
 [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError=true, CharSet=System.Runtime.InteropServices.CharSet.Auto)]
 public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint Msg, System.IntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out System.IntPtr lpdwResult);
 '@ -ErrorAction SilentlyContinue
@@ -220,12 +220,12 @@ public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint M
         $HWND_BROADCAST = [IntPtr]0xffff
         $WM_SETTINGCHANGE = 0x1A
         $res = [IntPtr]::Zero
-        [void][Twerk.Native]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [IntPtr]::Zero, 'Environment', 2, 5000, [ref]$res)
+        [void][Sel01Tweaker.Native]::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [IntPtr]::Zero, 'Environment', 2, 5000, [ref]$res)
     } catch { Write-Log "Broadcast-SettingChange failed: $($_.Exception.Message)" 'WARN' }
 }
 
 function Restart-Explorer {
-    if ($Global:Twerk.DryRun) { Write-Log 'DRYRUN restart explorer' 'INFO'; return }
+    if ($Global:Sel01Tweaker.DryRun) { Write-Log 'DRYRUN restart explorer' 'INFO'; return }
     try {
         Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
         # Windows auto-restarts explorer; start one if it didn't.
@@ -245,7 +245,7 @@ function Invoke-Remote {
         [Parameter(Mandatory)][string]$Url,
         [string[]]$ArgList = @()
     )
-    if ($Global:Twerk.DryRun) {
+    if ($Global:Sel01Tweaker.DryRun) {
         Write-Log "DRYRUN orchestrate $Name : $Url $($ArgList -join ' ')" 'INFO'
         return
     }

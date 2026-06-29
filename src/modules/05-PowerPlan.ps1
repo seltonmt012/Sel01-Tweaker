@@ -8,7 +8,7 @@
 function Invoke-Module-PowerPlan {
     Write-Log '=== Module: Power Plan (Ultimate Performance) ===' 'STEP'
 
-    if ($Global:Twerk.DryRun) {
+    if ($Global:Sel01Tweaker.DryRun) {
         Write-Log 'DRYRUN: would duplicate + activate Ultimate Performance plan' 'INFO'
         return
     }
@@ -24,7 +24,7 @@ function Invoke-Module-PowerPlan {
         } else {
             $out = powercfg -duplicatescheme $template 2>$null
             $guid = ([regex]'([0-9a-fA-F-]{36})').Match(($out -join ' ')).Value
-            if ($guid) { $Global:Twerk.PowerSchemeGuid = $guid }   # only mark for deletion if WE minted it
+            if ($guid) { $Global:Sel01Tweaker.PowerSchemeGuid = $guid }   # only mark for deletion if WE minted it
             Write-Log "Minted Ultimate Performance plan: $guid" 'INFO'
         }
 

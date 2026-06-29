@@ -9,7 +9,7 @@
 function Invoke-Module-Gaming {
     Write-Log '=== Module: Gaming tweaks ===' 'STEP'
 
-    $gaming = ($Global:Twerk.Profile -eq 'Gaming')
+    $gaming = ($Global:Sel01Tweaker.Profile -eq 'Gaming')
 
     # --- GameDVR / capture OFF (both profiles) ---------------------------
     Set-Reg 'HKCU:\System\GameConfigStore' 'GameDVR_Enabled' DWord 0 -Note 'GameDVR off'
@@ -21,12 +21,12 @@ function Invoke-Module-Gaming {
         Set-Reg 'HKCU:\SOFTWARE\Microsoft\GameBar' 'AllowAutoGameMode' DWord 1 -Note 'Game Mode ON (gaming profile)'
         Set-Reg 'HKCU:\SOFTWARE\Microsoft\GameBar' 'AutoGameModeEnabled' DWord 1
         Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers' 'HwSchMode' DWord 2 -Note 'HAGS ON (reboot needed)'
-        $Global:Twerk.RebootNeeded = $true
+        $Global:Sel01Tweaker.RebootNeeded = $true
     } else {
         Set-Reg 'HKCU:\SOFTWARE\Microsoft\GameBar' 'AllowAutoGameMode' DWord 0 -Note 'Game Mode OFF (clean profile)'
         Set-Reg 'HKCU:\SOFTWARE\Microsoft\GameBar' 'AutoGameModeEnabled' DWord 0
         Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers' 'HwSchMode' DWord 1 -Note 'HAGS OFF (clean profile)'
-        $Global:Twerk.RebootNeeded = $true
+        $Global:Sel01Tweaker.RebootNeeded = $true
     }
 
     # --- Multimedia scheduler: favour foreground game responsiveness -----

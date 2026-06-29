@@ -11,8 +11,8 @@
 # ============================================================================
 
 function Initialize-RamCleaner {
-    if (([System.Management.Automation.PSTypeName]'Twerk.Memory').Type) { return }
-    Add-Type -Namespace Twerk -Name Memory -UsingNamespace System.Diagnostics -MemberDefinition @'
+    if (([System.Management.Automation.PSTypeName]'Sel01Tweaker.Memory').Type) { return }
+    Add-Type -Namespace Sel01Tweaker -Name Memory -UsingNamespace System.Diagnostics -MemberDefinition @'
 [StructLayout(LayoutKind.Sequential)]
 public struct TokPriv1Luid { public int Count; public long Luid; public int Attr; }
 
@@ -72,11 +72,11 @@ public static void TrimFileCache() {
 function Invoke-RamClean {
     Initialize-RamCleaner
     try {
-        [Twerk.Memory]::EnablePrivileges()
-        [Twerk.Memory]::EmptyAllWorkingSets()
-        [Twerk.Memory]::FlushModifiedList()
-        [Twerk.Memory]::PurgeStandbyList()
-        [Twerk.Memory]::TrimFileCache()
+        [Sel01Tweaker.Memory]::EnablePrivileges()
+        [Sel01Tweaker.Memory]::EmptyAllWorkingSets()
+        [Sel01Tweaker.Memory]::FlushModifiedList()
+        [Sel01Tweaker.Memory]::PurgeStandbyList()
+        [Sel01Tweaker.Memory]::TrimFileCache()
         Write-Log 'RAM cleaned (working sets, modified list, standby list, file cache)' 'OK'
     } catch {
         Write-Log "RAM clean failed: $($_.Exception.Message)" 'WARN'
@@ -87,7 +87,7 @@ function Invoke-Module-RamCleaner {
     param([switch]$NoTask)
     Write-Log '=== Module: RAM Cleaner (native) ===' 'STEP'
 
-    if ($Global:Twerk.DryRun) {
+    if ($Global:Sel01Tweaker.DryRun) {
         Write-Log 'DRYRUN: would run one-shot RAM clean + register hourly task' 'INFO'
         return
     }
@@ -98,9 +98,9 @@ function Invoke-Module-RamCleaner {
     if ($NoTask) { Write-Log 'Skipping periodic task (-NoRamTask)' 'INFO'; return }
 
     # Drop a standalone cleaner script + register an hourly scheduled task.
-    $helper = Join-Path $Global:Twerk.DataDir 'Twerk-RamClean.ps1'
+    $helper = Join-Path $Global:Sel01Tweaker.DataDir 'Sel01Tweaker-RamClean.ps1'
     $helperBody = @'
-Add-Type -Namespace Twerk -Name Memory -UsingNamespace System.Diagnostics -MemberDefinition @"
+Add-Type -Namespace Sel01Tweaker -Name Memory -UsingNamespace System.Diagnostics -MemberDefinition @"
 [StructLayout(LayoutKind.Sequential)] public struct TokPriv1Luid { public int Count; public long Luid; public int Attr; }
 [DllImport("ntdll.dll")] public static extern uint NtSetSystemInformation(int c, IntPtr i, int l);
 [DllImport("advapi32.dll", SetLastError=true)] public static extern bool OpenProcessToken(IntPtr h,int a,ref IntPtr t);
@@ -115,15 +115,15 @@ foreach(Process pr in Process.GetProcesses()){try{EmptyWorkingSet(pr.Handle);}ca
 int sz=Marshal.SizeOf(typeof(int));foreach(int c in new int[]{3,4}){IntPtr m=Marshal.AllocHGlobal(sz);Marshal.WriteInt32(m,c);NtSetSystemInformation(0x50,m,sz);Marshal.FreeHGlobal(m);}
 try{SetSystemFileCacheSize(new IntPtr(-1),new IntPtr(-1),0);}catch{}}
 "@
-[Twerk.Memory]::Run()
+[Sel01Tweaker.Memory]::Run()
 '@
     Set-Content -Path $helper -Value $helperBody -Encoding UTF8
 
-    $taskName = 'Twerk-RamCleaner'
+    $taskName = 'Sel01Tweaker-RamCleaner'
     $cmd = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$helper`""
     try {
         schtasks /Create /TN $taskName /TR $cmd /SC HOURLY /RL HIGHEST /RU SYSTEM /F 2>$null | Out-Null
-        $Global:Twerk.RamTaskName = $taskName
+        $Global:Sel01Tweaker.RamTaskName = $taskName
         Write-Log "Registered hourly RAM-clean task: $taskName" 'OK'
         Add-Change 'Hourly RAM-clean task installed'
     } catch {

@@ -35,7 +35,7 @@ function Invoke-Module-Debloat {
         '-DisableDesktopSpotlight'
     )
 
-    $args = if ($Global:Twerk.Profile -eq 'Clean') { $common + $cleanExtra } else { $common }
+    $args = if ($Global:Sel01Tweaker.Profile -eq 'Clean') { $common + $cleanExtra } else { $common }
 
     Invoke-Remote -Name 'Win11Debloat' -Url $url -ArgList $args
 }

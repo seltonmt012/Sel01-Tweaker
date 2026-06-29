@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Twerk - one-click Windows 11 debloat + performance optimizer.
+    Sel01Tweaker - one-click Windows 11 debloat + performance optimizer.
 .DESCRIPTION
     Runs a single unattended pass: debloat (Win11Debloat), AI removal
     (RemoveWindowsAI), native winutil-style tweaks, performance/visual effects,
@@ -15,9 +15,9 @@
 .EXAMPLE
     & ([scriptblock]::Create((irm https://example/twerk.ps1))) -Profile Gaming
 .EXAMPLE
-    .\Twerk.ps1 -Profile Clean
+    .\Sel01Tweaker.ps1 -Profile Clean
 .EXAMPLE
-    .\Twerk.ps1 -Revert
+    .\Sel01Tweaker.ps1 -Revert
 #>
 [CmdletBinding()]
 param(
@@ -31,9 +31,9 @@ param(
     [switch]$DryRun
 )
 
-#__TWERK_BUNDLE_INSERT__
+#__SEL01TWEAKER_BUNDLE_INSERT__
 # ---------------------------------------------------------------------------
-#  Load parts. When bundled into dist\Twerk.ps1 the functions already exist,
+#  Load parts. When bundled into dist\Sel01Tweaker.ps1 the functions already exist,
 #  so dot-sourcing is skipped. When running from src\, pull lib + modules.
 # ---------------------------------------------------------------------------
 if (-not (Get-Command Invoke-Module-Performance -ErrorAction SilentlyContinue)) {
@@ -43,13 +43,13 @@ if (-not (Get-Command Invoke-Module-Performance -ErrorAction SilentlyContinue)) 
     Get-ChildItem (Join-Path $root 'modules') -Filter '*.ps1' | Sort-Object Name | ForEach-Object { . $_.FullName }
 }
 
-function Start-Twerk {
+function Start-Sel01Tweaker {
     param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$NoRamTask,$DryRun)
 
     # --- Self-elevate -----------------------------------------------------
     if (-not (Test-Admin)) {
         if ($PSCommandPath) {
-            Write-Host 'Twerk needs administrator rights - relaunching elevated...' -ForegroundColor Yellow
+            Write-Host 'Sel01Tweaker needs administrator rights - relaunching elevated...' -ForegroundColor Yellow
             $argline = @("-NoProfile","-ExecutionPolicy","Bypass","-File","`"$PSCommandPath`"","-Profile",$Profile)
             if ($Revert)      { $argline += '-Revert' }
             if ($NoRestore)   { $argline += '-NoRestore' }
@@ -66,12 +66,12 @@ function Start-Twerk {
     }
 
     # --- State init -------------------------------------------------------
-    $Global:Twerk.Profile = $Profile
-    $Global:Twerk.DryRun  = [bool]$DryRun
-    $Global:Twerk.Stamp   = (Get-Date -Format 'yyyyMMdd-HHmmss')
-    Initialize-TwerkState -Stamp $Global:Twerk.Stamp
+    $Global:Sel01Tweaker.Profile = $Profile
+    $Global:Sel01Tweaker.DryRun  = [bool]$DryRun
+    $Global:Sel01Tweaker.Stamp   = (Get-Date -Format 'yyyyMMdd-HHmmss')
+    Initialize-Sel01TweakerState -Stamp $Global:Sel01Tweaker.Stamp
 
-    Write-Log "Twerk starting | Profile=$Profile | DryRun=$($Global:Twerk.DryRun)" 'STEP'
+    Write-Log "Sel01Tweaker starting | Profile=$Profile | DryRun=$($Global:Sel01Tweaker.DryRun)" 'STEP'
 
     # --- Revert branch ----------------------------------------------------
     if ($Revert) {
@@ -80,7 +80,7 @@ function Start-Twerk {
     }
 
     # --- Safety -----------------------------------------------------------
-    if (-not $NoRestore) { New-TwerkRestorePoint } else { Write-Log 'Restore point skipped (-NoRestore)' 'WARN' }
+    if (-not $NoRestore) { New-Sel01TweakerRestorePoint } else { Write-Log 'Restore point skipped (-NoRestore)' 'WARN' }
 
     # --- Run modules (failures non-fatal) ---------------------------------
     $steps = @(
@@ -100,16 +100,16 @@ function Start-Twerk {
     # --- Apply live + persist backup --------------------------------------
     Broadcast-SettingChange
     Restart-Explorer
-    Save-TwerkBackup
+    Save-Sel01TweakerBackup
 
     # --- Summary ----------------------------------------------------------
     Write-Log '============ SUMMARY ============' 'STEP'
-    foreach ($c in $Global:Twerk.Changes) { Write-Log " - $c" 'OK' }
-    Write-Log "Backup: $($Global:Twerk.BackupFile)" 'INFO'
-    Write-Log "Log:    $($Global:Twerk.LogFile)" 'INFO'
-    Write-Log "Undo with:  .\Twerk.ps1 -Revert" 'INFO'
-    if ($Global:Twerk.RebootNeeded) { Write-Log 'REBOOT recommended (HAGS / power plan).' 'WARN' }
+    foreach ($c in $Global:Sel01Tweaker.Changes) { Write-Log " - $c" 'OK' }
+    Write-Log "Backup: $($Global:Sel01Tweaker.BackupFile)" 'INFO'
+    Write-Log "Log:    $($Global:Sel01Tweaker.LogFile)" 'INFO'
+    Write-Log "Undo with:  .\Sel01Tweaker.ps1 -Revert" 'INFO'
+    if ($Global:Sel01Tweaker.RebootNeeded) { Write-Log 'REBOOT recommended (HAGS / power plan).' 'WARN' }
     Write-Log 'Done.' 'OK'
 }
 
-Start-Twerk -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -NoRamTask:$NoRamTask -DryRun:$DryRun
+Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -NoRamTask:$NoRamTask -DryRun:$DryRun

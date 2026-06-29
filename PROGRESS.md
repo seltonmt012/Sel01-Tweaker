@@ -1,11 +1,11 @@
-# Sel01-Solver — Build Progress
+# Sel01-Tweaker — Build Progress
 
 One-click Windows 11 debloat + performance optimizer. Run once, unattended,
 done. Combines Win11Debloat, RemoveWindowsAI, winutil tweaks, WinMemoryCleaner-style
 RAM clean, and the standard Windows Performance Options.
 
-> Internal code/brand currently uses the working name **Twerk** (`$Global:Twerk`,
-> `Twerk.ps1`). Renaming everything to **Sel01-Solver** is a planned step (see Pending).
+> Internal code/brand currently uses the working name **Sel01Tweaker** (`$Global:Sel01Tweaker`,
+> `Sel01Tweaker.ps1`). Renaming everything to **Sel01-Tweaker** is a planned step (see Pending).
 
 ## Workflow rule
 
@@ -46,15 +46,15 @@ Commit message style: `step: <what>` (e.g. `step: add module 08 network tweaks`)
 - [x] `07-RamCleaner.ps1` — native Win32 P/Invoke (no GPL code) + hourly task `00ad74a`
 
 ### Phase 3 — Entry / Build / Docs / Tests
-- [x] `src/Twerk.ps1` — self-elevate, params, flow, revert branch, summary `00ad74a`
-- [x] `build.ps1` — bundle src → `dist/Twerk.ps1`, syntax-validated `00ad74a`
+- [x] `src/Sel01Tweaker.ps1` — self-elevate, params, flow, revert branch, summary `00ad74a`
+- [x] `build.ps1` — bundle src → `dist/Sel01Tweaker.ps1`, syntax-validated `00ad74a`
 - [x] `NOTICE.md` — licenses/attribution (MIT x3; GPL avoided by reimplementation) `00ad74a`
 - [x] `README.md` — usage, profiles, flags, revert, caveats `00ad74a`
-- [x] `tests/Twerk.Tests.ps1` (Pester v5) + `tests/run-checks.ps1` (no-dependency) `00ad74a`
+- [x] `tests/Sel01Tweaker.Tests.ps1` (Pester v5) + `tests/run-checks.ps1` (no-dependency) `00ad74a`
 
 ### Phase 4 — Verification
 - [x] All 10 source files: syntax clean
-- [x] Bundle `dist/Twerk.ps1`: syntax clean (43 KB)
+- [x] Bundle `dist/Sel01Tweaker.ps1`: syntax clean (43 KB)
 - [x] Core helpers on real registry: DWord/String/Binary write + type, snapshot, DryRun-no-write, **revert round-trip** → all PASS
 - [x] All 7 modules DryRun both profiles → 0 errors (Gaming 51 snapshots, Clean 58)
 - [x] Profile gating correct (Gaming HwSchMode=2/GameMode on; Clean HwSchMode=1/GameMode off + extra trim)
@@ -62,6 +62,9 @@ Commit message style: `step: <what>` (e.g. `step: add module 08 network tweaks`)
 - [x] Git repo initialized, all files committed `00ad74a`
 - [x] `PROGRESS.md` + `.gitignore` (commit-per-step workflow) `e8609da`
 - [x] `CLAUDE.md` (commands, architecture, invariants) `4afa58c`
+- [x] `START_Sel01-Tweaker.bat` — double-click launcher, self-elevates, 1-5 menu (Gaming/Clean/DryRun/Revert)
+- [x] `ANLEITUNG.md` — dead-simple German beginner guide (visual menu, FAQ, confirms perf settings auto-applied)
+- [x] **Renamed** project Twerk/Sel01-Solver → **Sel01-Tweaker** (repo github.com/seltonmt012/Sel01-Tweaker). Code token `Twerk`→`Sel01Tweaker`, files `Sel01Tweaker.ps1`/`Sel01Tweaker.Tests.ps1`/`START_Sel01-Tweaker.bat`, data dir `%ProgramData%\Sel01Tweaker`, namespaces `Sel01Tweaker.*`. Rebuilt + retested (all checks pass, 7 modules ok, RAM type compiles).
 
 ---
 
@@ -82,7 +85,6 @@ Commit message style: `step: <what>` (e.g. `step: add module 08 network tweaks`)
 
 ## Pending / Next
 
-- [ ] **Rename** internal brand Twerk → Sel01-Solver (vars `$Global:Twerk`, `Twerk.ps1`, data dir `%ProgramData%\Twerk`, task name, type namespaces). Single sweep + rebuild + retest.
 - [ ] User's **additional tweaks/repos** → add as modules `08+` (same `Set-Reg`/snapshot pipeline, auto-revertable).
 - [ ] **Hosting** the one-liner URL (raw GitHub or own domain) once chosen.
 - [ ] Optional: Pester 5 install for CI; current Windows Pester is 3.x (use `run-checks.ps1`).

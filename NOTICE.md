@@ -1,7 +1,7 @@
 # Third-Party Notices
 
-Twerk combines, orchestrates, and reimplements functionality inspired by the
-following open-source projects. Twerk is an independent project and is not
+Sel01Tweaker combines, orchestrates, and reimplements functionality inspired by the
+following open-source projects. Sel01Tweaker is an independent project and is not
 affiliated with or endorsed by any of them.
 
 ## Orchestrated at runtime (downloaded and executed as-is, not bundled)

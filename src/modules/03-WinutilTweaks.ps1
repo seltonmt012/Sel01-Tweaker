@@ -9,7 +9,7 @@
 function Invoke-Module-WinutilTweaks {
     Write-Log '=== Module: Winutil Essential Tweaks (native) ===' 'STEP'
 
-    $clean = ($Global:Twerk.Profile -eq 'Clean')
+    $clean = ($Global:Sel01Tweaker.Profile -eq 'Clean')
 
     # --- Telemetry --------------------------------------------------------
     Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' DWord 0 -Note 'Telemetry off'
@@ -78,13 +78,13 @@ function Invoke-Module-WinutilTweaks {
             '\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector'
         )
         foreach ($t in $tasks) {
-            if ($Global:Twerk.DryRun) { Write-Log "DRYRUN disable task: $t" 'INFO'; continue }
+            if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN disable task: $t" 'INFO'; continue }
             schtasks /Change /TN $t /Disable 2>$null | Out-Null
         }
         Add-Change 'Telemetry scheduled tasks disabled'
 
         # Disable hibernation (frees disk; also kills Fast Startup)
-        if (-not $Global:Twerk.DryRun) { powercfg /hibernate off 2>$null | Out-Null }
+        if (-not $Global:Sel01Tweaker.DryRun) { powercfg /hibernate off 2>$null | Out-Null }
         Add-Change 'Hibernation off'
     }
 }

@@ -2,15 +2,16 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-One command. Runs once, unattended. Debloats, removes Windows AI/Copilot,
-applies performance + visual-effects tweaks, sets the Ultimate Performance power
-plan, applies gaming tweaks, and installs a native RAM cleaner - then it's done.
-No GUI clicking. Creates a restore point and a full registry backup so you can
-undo everything with `-Revert`.
+Run it once, as admin, and it tidies up a fresh Windows 10 or 11 install for you:
+removes bloat apps and Copilot, turns off telemetry, sets the performance and
+visual-effects options most people change by hand, switches on the Ultimate
+Performance power plan, applies gaming and FiveM tweaks, and clears out temp files
+and RAM. No menus to click through. Before it touches anything it makes a restore
+point and a registry backup, so `-Revert` puts everything back.
 
-Combines/orchestrates: **Win11Debloat**, **RemoveWindowsAI**, **winutil** tweaks
-(reimplemented), **WinMemoryCleaner**-style RAM clean (reimplemented), plus the
-standard Windows Performance Options. See `NOTICE.md` for licenses/attribution.
+It runs Win11Debloat and RemoveWindowsAI for you, and reimplements the winutil
+tweaks and a WinMemoryCleaner-style RAM clean natively (no GPL code bundled).
+NOTICE.md has the licenses.
 
 ## Run it
 

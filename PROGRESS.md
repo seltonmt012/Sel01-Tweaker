@@ -64,6 +64,8 @@ Commit message style: `step: <what>` (e.g. `step: add module 08 network tweaks`)
 - [x] `CLAUDE.md` (commands, architecture, invariants) `4afa58c`
 - [x] `START_Sel01-Tweaker.bat` — double-click launcher, self-elevates, 1-5 menu (Gaming/Clean/DryRun/Revert)
 - [x] `ANLEITUNG.md` — dead-simple German beginner guide (visual menu, FAQ, confirms perf settings auto-applied)
+- [x] **Module 08-FiveM** (Gaming only) — safe FiveM tweaks: per-app FSO off + High-Perf GPU (real exe paths), TdrDelay=8 (crash guard, NOT TdrLevel=0), IFEO CpuPriorityClass=6 (Above Normal), TcpAckFrequency/TcpNoDelay on the **active** adapter only. `-SkipFiveM` flag. Researched via 3 fan-out subagents; verified DryRun (FiveM detected on this box, Clean skips).
+- [x] Fixed module 06 `SystemResponsiveness` 0 → **10** (0 starves MMCSS audio → crackle)
 - [x] **Renamed** project Twerk/Sel01-Solver → **Sel01-Tweaker** (repo github.com/seltonmt012/Sel01-Tweaker). Code token `Twerk`→`Sel01Tweaker`, files `Sel01Tweaker.ps1`/`Sel01Tweaker.Tests.ps1`/`START_Sel01-Tweaker.bat`, data dir `%ProgramData%\Sel01Tweaker`, namespaces `Sel01Tweaker.*`. Rebuilt + retested (all checks pass, 7 modules ok, RAM type compiles).
 
 ---
@@ -91,6 +93,16 @@ Commit message style: `step: <what>` (e.g. `step: add module 08 network tweaks`)
 - [ ] Optional: multi-user / default-profile (sysprep) application.
 
 ---
+
+## FiveM safety — EXCLUDED harmful tweaks (researched, deliberately NOT shipped)
+
+These are common in online "FiveM hitreg/booster" scripts but break things or are placebo:
+- `SystemResponsiveness=0`, `Win32PrioritySeparation=38` — starve audio/background (crackle, stutter).
+- QoS / Psched / Pacer disable, fixed `TcpWindowSize`, `MaxUserPort`, `DefaultTTL`, `Ndu` disable — break/placebo networking; autotuning should stay `normal`.
+- `reg add ...Interfaces\*\*\*` — `reg.exe` doesn't expand `*`; creates junk keys (we enumerate the active adapter instead).
+- `DWM CompositionPolicy=0` — DWM can't be disabled on Win11; ignored.
+- `MouseSensitivity=20`, `WaitToKillAppTimeout=1000` — overwrite user settings / risk data loss on shutdown.
+- `TdrLevel=0` (removes GPU crash recovery), DisablePagingExecutive / LargeSystemCache / IoPageLockLimit (myths), disable page file, Spectre/Meltdown off, bcdedit timer hacks, large pages, blanket service disable — all AVOID.
 
 ## Decisions Log
 - **Approach:** orchestrator-hybrid — download+run Win11Debloat & RemoveWindowsAI; native reimplement winutil tweaks + perf/visual + RAM clean.

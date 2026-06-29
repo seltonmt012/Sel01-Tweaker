@@ -49,6 +49,7 @@ Or, once hosted at a URL, the winutil-style one-liner (supports parameters):
 | `-NoRestore` | Skip the System Restore point. |
 | `-SkipDebloat` | Skip the Win11Debloat download/run. |
 | `-SkipAI` | Skip the RemoveWindowsAI download/run. |
+| `-SkipFiveM` | Skip the FiveM tweaks (Gaming profile only). |
 | `-NoRamTask` | Run the one-shot RAM clean but don't install the hourly task. |
 
 ## Undo
@@ -73,8 +74,12 @@ needed.
    font smoothing, and thumbnails; transparency/animations off; 0ms menus; no startup delay;
    mouse acceleration off.
 5. **Power plan** — Ultimate Performance.
-6. **Gaming** — GameDVR off; Game Mode + HAGS per profile; MMCSS game priorities.
-7. **RAM cleaner** — one-shot clean + optional hourly background task (native Win32, no GPL code).
+6. **Gaming** — GameDVR off; Game Mode + HAGS per profile; MMCSS game priorities (audio-safe).
+7. **FiveM** (Gaming only) — per-app fullscreen-optimizations off + High-Performance GPU for the
+   real FiveM executables, `TdrDelay=8` GPU crash guard, Above-Normal process priority, and
+   Nagle/delayed-ACK off on the active adapter. Skips cleanly if FiveM isn't installed. Only safe,
+   reversible tweaks — deliberately excludes the harmful "hitreg booster" registry hacks (see PROGRESS.md).
+8. **RAM cleaner** — one-shot clean + optional hourly background task (native Win32, no GPL code).
 
 ## Files
 

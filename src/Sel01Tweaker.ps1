@@ -27,6 +27,7 @@ param(
     [switch]$NoRestore,
     [switch]$SkipDebloat,
     [switch]$SkipAI,
+    [switch]$SkipFiveM,
     [switch]$NoRamTask,
     [switch]$DryRun
 )
@@ -44,7 +45,7 @@ if (-not (Get-Command Invoke-Module-Performance -ErrorAction SilentlyContinue)) 
 }
 
 function Start-Sel01Tweaker {
-    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$NoRamTask,$DryRun)
+    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$NoRamTask,$DryRun)
 
     # --- Self-elevate -----------------------------------------------------
     if (-not (Test-Admin)) {
@@ -55,6 +56,7 @@ function Start-Sel01Tweaker {
             if ($NoRestore)   { $argline += '-NoRestore' }
             if ($SkipDebloat) { $argline += '-SkipDebloat' }
             if ($SkipAI)      { $argline += '-SkipAI' }
+            if ($SkipFiveM)   { $argline += '-SkipFiveM' }
             if ($NoRamTask)   { $argline += '-NoRamTask' }
             if ($DryRun)      { $argline += '-DryRun' }
             Start-Process powershell.exe -Verb RunAs -ArgumentList $argline
@@ -90,6 +92,7 @@ function Start-Sel01Tweaker {
         @{ Name='Performance';   Skip=$false;    Run={ Invoke-Module-Performance } },
         @{ Name='PowerPlan';     Skip=$false;    Run={ Invoke-Module-PowerPlan } },
         @{ Name='Gaming';        Skip=$false;    Run={ Invoke-Module-Gaming } },
+        @{ Name='FiveM';         Skip=$SkipFiveM; Run={ Invoke-Module-FiveM } },
         @{ Name='RamCleaner';    Skip=$false;    Run={ Invoke-Module-RamCleaner -NoTask:$NoRamTask } }
     )
     foreach ($s in $steps) {
@@ -112,4 +115,4 @@ function Start-Sel01Tweaker {
     Write-Log 'Done.' 'OK'
 }
 
-Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -NoRamTask:$NoRamTask -DryRun:$DryRun
+Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -SkipFiveM:$SkipFiveM -NoRamTask:$NoRamTask -DryRun:$DryRun

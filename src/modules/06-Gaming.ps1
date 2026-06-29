@@ -31,7 +31,9 @@ function Invoke-Module-Gaming {
 
     # --- Multimedia scheduler: favour foreground game responsiveness -----
     $mm = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
-    Set-Reg $mm 'SystemResponsiveness' DWord 0 -Note 'System responsiveness favours foreground'
+    # 10 (not 0): leaves a small background guarantee so MMCSS audio threads
+    # don't get starved (0 causes sound crackle). 10 is the safe gaming value.
+    Set-Reg $mm 'SystemResponsiveness' DWord 10 -Note 'System responsiveness favours foreground (audio-safe 10)'
     if ($gaming) {
         Set-Reg $mm 'NetworkThrottlingIndex' DWord 0xffffffff -Note 'Network throttling off'
     }

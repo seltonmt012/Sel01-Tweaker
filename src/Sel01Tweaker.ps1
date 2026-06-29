@@ -26,6 +26,8 @@ param(
     [switch]$SkipAI,
     [switch]$SkipFiveM,
     [switch]$SkipClean,
+    [switch]$TimerFix,
+    [switch]$MsiMode,
     [switch]$NoRamTask,
     [switch]$DryRun
 )
@@ -277,7 +279,7 @@ function Invoke-Pipeline {
 #  Entry
 # ===========================================================================
 function Start-Sel01Tweaker {
-    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$SkipClean,$NoRamTask,$DryRun)
+    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$SkipClean,$TimerFix,$MsiMode,$NoRamTask,$DryRun)
 
     # --- Self-elevate -----------------------------------------------------
     if (-not (Test-Admin)) {
@@ -291,6 +293,8 @@ function Start-Sel01Tweaker {
             if ($SkipAI)      { $argline += '-SkipAI' }
             if ($SkipFiveM)   { $argline += '-SkipFiveM' }
             if ($SkipClean)   { $argline += '-SkipClean' }
+            if ($TimerFix)    { $argline += '-TimerFix' }
+            if ($MsiMode)     { $argline += '-MsiMode' }
             if ($NoRamTask)   { $argline += '-NoRamTask' }
             if ($DryRun)      { $argline += '-DryRun' }
             Start-Process powershell.exe -Verb RunAs -ArgumentList $argline
@@ -307,6 +311,8 @@ function Start-Sel01Tweaker {
     $Global:Sel01Tweaker.SkipAI      = [bool]$SkipAI
     $Global:Sel01Tweaker.SkipFiveM   = [bool]$SkipFiveM
     $Global:Sel01Tweaker.SkipClean   = [bool]$SkipClean
+    $Global:Sel01Tweaker.TimerFix    = [bool]$TimerFix
+    $Global:Sel01Tweaker.MsiMode     = [bool]$MsiMode
     $Global:Sel01Tweaker.NoRamTask   = [bool]$NoRamTask
 
     # --- Revert -----------------------------------------------------------
@@ -340,4 +346,4 @@ function Start-Sel01Tweaker {
     }
 }
 
-Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -SkipFiveM:$SkipFiveM -NoRamTask:$NoRamTask -DryRun:$DryRun
+Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -SkipFiveM:$SkipFiveM -SkipClean:$SkipClean -TimerFix:$TimerFix -MsiMode:$MsiMode -NoRamTask:$NoRamTask -DryRun:$DryRun

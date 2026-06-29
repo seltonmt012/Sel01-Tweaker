@@ -38,6 +38,9 @@ function Invoke-Module-Extra {
     Set-Reg $edge 'BackgroundModeEnabled' DWord 0 -Note 'Edge background mode off'
     Set-Reg $edge 'HideFirstRunExperience' DWord 1
 
+    # --- Fast Startup off (clean cold boot; better update reliability) ---
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' 'HiberbootEnabled' DWord 0 -Note 'Fast Startup off (sauberer Kaltstart)'
+
     # --- Filesystem (SSD-friendly, dev QoL) ------------------------------
     $fs = 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'
     Set-Reg $fs 'NtfsDisableLastAccessUpdate' DWord 0x80000001 -Note 'NTFS last-access updates off (SSD-friendly)'

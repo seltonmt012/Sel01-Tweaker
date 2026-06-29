@@ -26,6 +26,8 @@ param(
     [switch]$SkipAI,
     [switch]$SkipFiveM,
     [switch]$SkipClean,
+    [switch]$TimerFix,
+    [switch]$MsiMode,
     [switch]$NoRamTask,
     [switch]$DryRun
 )
@@ -49,7 +51,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.1.3'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.2.0'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -1000,6 +1002,37 @@ function Get-ActiveInterfaceGuids {
     } catch { return @() }
 }
 
+function Clear-FiveMCache {
+    # Deletes ONLY the stutter-prone cache subfolders. Never touches
+    # data\cache\game (4-8 GB core assets) or citizen\ (the runtime). FiveM
+    # must be closed; if it is running we skip rather than corrupt the cache.
+    $data = Join-Path $env:LOCALAPPDATA 'FiveM\FiveM.app\data'
+    if (-not (Test-Path $data)) { Write-Log 'FiveM data dir not found - skip cache clean' 'INFO'; return }
+    if (Get-Process -Name 'FiveM','FiveM_GTAProcess','CitizenFX_SubProcess' -ErrorAction SilentlyContinue) {
+        Write-Log 'FiveM laeuft - Cache-Clean uebersprungen (erst FiveM schliessen)' 'WARN'; return
+    }
+    $whitelist = 'cache\browser','cache\subprocess','cache\dxcache','server-cache',
+                 'server-cache-priv','nui-storage','crashes','logs'
+    $freed = 0.0
+    foreach ($t in $whitelist) {
+        $p = Join-Path $data $t
+        if (-not (Test-Path $p)) { continue }
+        $size = (Get-ChildItem $p -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+        if (-not $size) { continue }
+        if ($Global:Sel01Tweaker.DryRun) {
+            Write-Log ("DRYRUN FiveM cache {0} (~{1} MB)" -f $t, [math]::Round($size/1MB,1)) 'INFO'; $freed += $size; continue
+        }
+        Get-ChildItem $p -Force -ErrorAction SilentlyContinue | ForEach-Object {
+            try { Remove-Item $_.FullName -Recurse -Force -ErrorAction Stop } catch {}
+        }
+        $freed += $size
+        Write-Log ("FiveM cache geleert: {0} (~{1} MB)" -f $t, [math]::Round($size/1MB,1)) 'INFO'
+    }
+    $mb = [math]::Round($freed/1MB,1)
+    Write-Log ("FiveM Cache: ~{0} MB frei" -f $mb) 'OK'
+    Add-Change ("FiveM Cache geleert (~$mb MB)")
+}
+
 function Invoke-Module-FiveM {
     Write-Log '=== Module: FiveM tweaks (safe, Gaming only) ===' 'STEP'
 
@@ -1049,6 +1082,9 @@ function Invoke-Module-FiveM {
         }
         Write-Log 'Network tweaks affect the TCP path only; FiveM gameplay is UDP.' 'INFO'
     }
+
+    # --- 5) Clear FiveM stutter caches (safe whitelist) ------------------
+    Clear-FiveMCache
 }
 
 
@@ -1092,6 +1128,9 @@ function Invoke-Module-Extra {
     Set-Reg $edge 'StartupBoostEnabled'   DWord 0 -Note 'Edge startup boost off'
     Set-Reg $edge 'BackgroundModeEnabled' DWord 0 -Note 'Edge background mode off'
     Set-Reg $edge 'HideFirstRunExperience' DWord 1
+
+    # --- Fast Startup off (clean cold boot; better update reliability) ---
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' 'HiberbootEnabled' DWord 0 -Note 'Fast Startup off (sauberer Kaltstart)'
 
     # --- Filesystem (SSD-friendly, dev QoL) ------------------------------
     $fs = 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'
@@ -1228,15 +1267,13 @@ function Invoke-Module-Power {
         return
     }
 
-    if ($Global:Sel01Tweaker.DryRun) {
-        Write-Log 'DRYRUN: USB selective suspend off, PCIe ASPM off, disk-timeout 0 (AC)' 'INFO'
-        return
-    }
-
     # GUIDs: USB selective suspend setting, PCIe ASPM setting.
     $usbSub = '2a737441-1930-4402-8d77-b2bebba308a3'; $usbSet = '48e6b7a6-50f5-4782-a5d4-53bb8f07e226'
     $pciSub = '501a4d13-42af-4429-9fd1-a8218c268e20'; $pciSet = 'ee12f906-d277-404b-b6da-e5fa1a576df5'
-    try {
+    if ($Global:Sel01Tweaker.DryRun) {
+        Write-Log 'DRYRUN: USB selective suspend off, PCIe ASPM off, disk-timeout 0 (AC)' 'INFO'
+    } else {
+      try {
         powercfg /SETACVALUEINDEX SCHEME_CURRENT $usbSub $usbSet 0 2>$null | Out-Null   # USB suspend off
         powercfg /SETACVALUEINDEX SCHEME_CURRENT $pciSub $pciSet 0 2>$null | Out-Null   # PCIe ASPM off
         powercfg /change disk-timeout-ac 0 2>$null | Out-Null                            # disk never sleeps
@@ -1244,8 +1281,29 @@ function Invoke-Module-Power {
         Write-Log 'USB selective suspend off, PCIe ASPM off, disk no-sleep (AC)' 'OK'
         Add-Change 'Power: USB-suspend/PCIe-ASPM off, disk no-sleep (Desktop/AC)'
         Write-Log 'Revert: entfernt sich mit dem Power-Plan (-Revert setzt auf Balanced).' 'INFO'
-    } catch {
+      } catch {
         Write-Log "Power tweaks failed: $($_.Exception.Message)" 'WARN'
+      }
+    }
+
+    # --- Opt-in: Win11 global timer resolution (fixes micro-stutter) -----
+    if ($Global:Sel01Tweaker.TimerFix) {
+        if ($Global:Sel01Tweaker.IsWin11) {
+            Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel' 'GlobalTimerResolutionRequests' DWord 1 -Note 'Win11 global timer resolution (opt-in)'
+            $Global:Sel01Tweaker.RebootNeeded = $true
+        } else { Write-Log 'TimerFix uebersprungen (nur Win11)' 'INFO' }
+    }
+
+    # --- Opt-in: GPU MSI mode (lower interrupt latency) ------------------
+    if ($Global:Sel01Tweaker.MsiMode) {
+        try {
+            $gpu = Get-PnpDevice -Class Display -Status OK -ErrorAction Stop | Select-Object -First 1
+            if ($gpu) {
+                $path = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($gpu.InstanceId)\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties"
+                Set-Reg $path 'MSISupported' DWord 1 -Note ("GPU MSI mode on ({0})" -f $gpu.FriendlyName)
+                $Global:Sel01Tweaker.RebootNeeded = $true
+            } else { Write-Log 'MSI mode: keine aktive GPU gefunden' 'WARN' }
+        } catch { Write-Log "MSI mode: GPU-Erkennung fehlgeschlagen: $($_.Exception.Message)" 'WARN' }
     }
 }
 
@@ -1562,7 +1620,7 @@ function Invoke-Pipeline {
 #  Entry
 # ===========================================================================
 function Start-Sel01Tweaker {
-    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$SkipClean,$NoRamTask,$DryRun)
+    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$SkipClean,$TimerFix,$MsiMode,$NoRamTask,$DryRun)
 
     # --- Self-elevate -----------------------------------------------------
     if (-not (Test-Admin)) {
@@ -1576,6 +1634,8 @@ function Start-Sel01Tweaker {
             if ($SkipAI)      { $argline += '-SkipAI' }
             if ($SkipFiveM)   { $argline += '-SkipFiveM' }
             if ($SkipClean)   { $argline += '-SkipClean' }
+            if ($TimerFix)    { $argline += '-TimerFix' }
+            if ($MsiMode)     { $argline += '-MsiMode' }
             if ($NoRamTask)   { $argline += '-NoRamTask' }
             if ($DryRun)      { $argline += '-DryRun' }
             Start-Process powershell.exe -Verb RunAs -ArgumentList $argline
@@ -1592,6 +1652,8 @@ function Start-Sel01Tweaker {
     $Global:Sel01Tweaker.SkipAI      = [bool]$SkipAI
     $Global:Sel01Tweaker.SkipFiveM   = [bool]$SkipFiveM
     $Global:Sel01Tweaker.SkipClean   = [bool]$SkipClean
+    $Global:Sel01Tweaker.TimerFix    = [bool]$TimerFix
+    $Global:Sel01Tweaker.MsiMode     = [bool]$MsiMode
     $Global:Sel01Tweaker.NoRamTask   = [bool]$NoRamTask
 
     # --- Revert -----------------------------------------------------------
@@ -1625,5 +1687,5 @@ function Start-Sel01Tweaker {
     }
 }
 
-Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -SkipFiveM:$SkipFiveM -NoRamTask:$NoRamTask -DryRun:$DryRun
+Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -SkipFiveM:$SkipFiveM -SkipClean:$SkipClean -TimerFix:$TimerFix -MsiMode:$MsiMode -NoRamTask:$NoRamTask -DryRun:$DryRun
 

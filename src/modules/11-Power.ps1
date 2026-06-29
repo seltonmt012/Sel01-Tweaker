@@ -16,15 +16,13 @@ function Invoke-Module-Power {
         return
     }
 
-    if ($Global:Sel01Tweaker.DryRun) {
-        Write-Log 'DRYRUN: USB selective suspend off, PCIe ASPM off, disk-timeout 0 (AC)' 'INFO'
-        return
-    }
-
     # GUIDs: USB selective suspend setting, PCIe ASPM setting.
     $usbSub = '2a737441-1930-4402-8d77-b2bebba308a3'; $usbSet = '48e6b7a6-50f5-4782-a5d4-53bb8f07e226'
     $pciSub = '501a4d13-42af-4429-9fd1-a8218c268e20'; $pciSet = 'ee12f906-d277-404b-b6da-e5fa1a576df5'
-    try {
+    if ($Global:Sel01Tweaker.DryRun) {
+        Write-Log 'DRYRUN: USB selective suspend off, PCIe ASPM off, disk-timeout 0 (AC)' 'INFO'
+    } else {
+      try {
         powercfg /SETACVALUEINDEX SCHEME_CURRENT $usbSub $usbSet 0 2>$null | Out-Null   # USB suspend off
         powercfg /SETACVALUEINDEX SCHEME_CURRENT $pciSub $pciSet 0 2>$null | Out-Null   # PCIe ASPM off
         powercfg /change disk-timeout-ac 0 2>$null | Out-Null                            # disk never sleeps
@@ -32,7 +30,28 @@ function Invoke-Module-Power {
         Write-Log 'USB selective suspend off, PCIe ASPM off, disk no-sleep (AC)' 'OK'
         Add-Change 'Power: USB-suspend/PCIe-ASPM off, disk no-sleep (Desktop/AC)'
         Write-Log 'Revert: entfernt sich mit dem Power-Plan (-Revert setzt auf Balanced).' 'INFO'
-    } catch {
+      } catch {
         Write-Log "Power tweaks failed: $($_.Exception.Message)" 'WARN'
+      }
+    }
+
+    # --- Opt-in: Win11 global timer resolution (fixes micro-stutter) -----
+    if ($Global:Sel01Tweaker.TimerFix) {
+        if ($Global:Sel01Tweaker.IsWin11) {
+            Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel' 'GlobalTimerResolutionRequests' DWord 1 -Note 'Win11 global timer resolution (opt-in)'
+            $Global:Sel01Tweaker.RebootNeeded = $true
+        } else { Write-Log 'TimerFix uebersprungen (nur Win11)' 'INFO' }
+    }
+
+    # --- Opt-in: GPU MSI mode (lower interrupt latency) ------------------
+    if ($Global:Sel01Tweaker.MsiMode) {
+        try {
+            $gpu = Get-PnpDevice -Class Display -Status OK -ErrorAction Stop | Select-Object -First 1
+            if ($gpu) {
+                $path = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($gpu.InstanceId)\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties"
+                Set-Reg $path 'MSISupported' DWord 1 -Note ("GPU MSI mode on ({0})" -f $gpu.FriendlyName)
+                $Global:Sel01Tweaker.RebootNeeded = $true
+            } else { Write-Log 'MSI mode: keine aktive GPU gefunden' 'WARN' }
+        } catch { Write-Log "MSI mode: GPU-Erkennung fehlgeschlagen: $($_.Exception.Message)" 'WARN' }
     }
 }

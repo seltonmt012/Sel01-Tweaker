@@ -63,6 +63,8 @@ Or run it straight from GitHub, winutil-style (supports parameters):
 | `-SkipAI` | Skip the RemoveWindowsAI download/run. |
 | `-SkipFiveM` | Skip the FiveM tweaks (Gaming profile only). |
 | `-SkipClean` | Skip the temp/disk cleaner. |
+| `-TimerFix` | Opt-in: Win11 global timer resolution (fixes micro-stutter; desktop). |
+| `-MsiMode` | Opt-in: enable GPU MSI mode (lower interrupt latency; auto-detects the GPU). |
 | `-NoRamTask` | Run the one-shot RAM clean but don't install the hourly task. |
 
 ## Undo

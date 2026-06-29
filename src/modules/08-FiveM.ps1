@@ -33,6 +33,37 @@ function Get-ActiveInterfaceGuids {
     } catch { return @() }
 }
 
+function Clear-FiveMCache {
+    # Deletes ONLY the stutter-prone cache subfolders. Never touches
+    # data\cache\game (4-8 GB core assets) or citizen\ (the runtime). FiveM
+    # must be closed; if it is running we skip rather than corrupt the cache.
+    $data = Join-Path $env:LOCALAPPDATA 'FiveM\FiveM.app\data'
+    if (-not (Test-Path $data)) { Write-Log 'FiveM data dir not found - skip cache clean' 'INFO'; return }
+    if (Get-Process -Name 'FiveM','FiveM_GTAProcess','CitizenFX_SubProcess' -ErrorAction SilentlyContinue) {
+        Write-Log 'FiveM laeuft - Cache-Clean uebersprungen (erst FiveM schliessen)' 'WARN'; return
+    }
+    $whitelist = 'cache\browser','cache\subprocess','cache\dxcache','server-cache',
+                 'server-cache-priv','nui-storage','crashes','logs'
+    $freed = 0.0
+    foreach ($t in $whitelist) {
+        $p = Join-Path $data $t
+        if (-not (Test-Path $p)) { continue }
+        $size = (Get-ChildItem $p -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+        if (-not $size) { continue }
+        if ($Global:Sel01Tweaker.DryRun) {
+            Write-Log ("DRYRUN FiveM cache {0} (~{1} MB)" -f $t, [math]::Round($size/1MB,1)) 'INFO'; $freed += $size; continue
+        }
+        Get-ChildItem $p -Force -ErrorAction SilentlyContinue | ForEach-Object {
+            try { Remove-Item $_.FullName -Recurse -Force -ErrorAction Stop } catch {}
+        }
+        $freed += $size
+        Write-Log ("FiveM cache geleert: {0} (~{1} MB)" -f $t, [math]::Round($size/1MB,1)) 'INFO'
+    }
+    $mb = [math]::Round($freed/1MB,1)
+    Write-Log ("FiveM Cache: ~{0} MB frei" -f $mb) 'OK'
+    Add-Change ("FiveM Cache geleert (~$mb MB)")
+}
+
 function Invoke-Module-FiveM {
     Write-Log '=== Module: FiveM tweaks (safe, Gaming only) ===' 'STEP'
 
@@ -82,4 +113,7 @@ function Invoke-Module-FiveM {
         }
         Write-Log 'Network tweaks affect the TCP path only; FiveM gameplay is UDP.' 'INFO'
     }
+
+    # --- 5) Clear FiveM stutter caches (safe whitelist) ------------------
+    Clear-FiveMCache
 }

@@ -25,6 +25,7 @@ param(
     [switch]$SkipDebloat,
     [switch]$SkipAI,
     [switch]$SkipFiveM,
+    [switch]$SkipClean,
     [switch]$NoRamTask,
     [switch]$DryRun
 )
@@ -61,7 +62,24 @@ if (-not $Global:Sel01Tweaker) {
         IsWin11   = $true
         OSBuild   = 0
         OSName    = 'Windows'
+        IsLaptop  = $false
+        OnBattery = $false
     }
+}
+
+function Get-Sel01PowerInfo {
+    <#  Detects laptop vs desktop and AC vs battery so power tweaks can be
+        skipped on portables / on battery (where they hurt battery / devices).  #>
+    $bat = $null
+    try { $bat = Get-CimInstance Win32_Battery -ErrorAction Stop } catch {}
+    $chassis = @()
+    try { $chassis = @((Get-CimInstance Win32_SystemEnclosure -ErrorAction Stop).ChassisTypes) } catch {}
+    $laptopChassis = 8,9,10,11,12,14,18,21,30,31,32   # portable/laptop/notebook/tablet/convertible
+    $isLaptop = ($null -ne $bat) -or (($chassis | Where-Object { $laptopChassis -contains $_ }).Count -gt 0)
+    $onBattery = $false
+    if ($bat) { $onBattery = (@($bat)[0].BatteryStatus -eq 1) }   # 1 = discharging
+    $Global:Sel01Tweaker.IsLaptop  = [bool]$isLaptop
+    $Global:Sel01Tweaker.OnBattery = [bool]$onBattery
 }
 
 function Get-Sel01OSInfo {
@@ -1190,6 +1208,112 @@ function Invoke-Module-Privacy {
 }
 
 
+# ----- bundled: 11-Power.ps1 -----
+# ============================================================================
+#  Module 11 - Power tweaks  (Desktop on AC only)
+#  Latency/throughput power settings that HURT laptops/battery, so they are
+#  applied ONLY on a desktop running on AC. Applied to the active power scheme
+#  (the Ultimate Performance plan set in module 05), so -Revert removes them
+#  together with that plan (reset to Balanced).
+# ============================================================================
+
+function Invoke-Module-Power {
+    Write-Log '=== Module: Power tweaks (Desktop/AC only) ===' 'STEP'
+
+    Get-Sel01PowerInfo
+    if ($Global:Sel01Tweaker.IsLaptop -or $Global:Sel01Tweaker.OnBattery) {
+        Write-Log ("Laptop={0} Akku={1} -> Power-Tweaks uebersprungen (geraete-/akku-sicher)" -f `
+            $Global:Sel01Tweaker.IsLaptop, $Global:Sel01Tweaker.OnBattery) 'WARN'
+        return
+    }
+
+    if ($Global:Sel01Tweaker.DryRun) {
+        Write-Log 'DRYRUN: USB selective suspend off, PCIe ASPM off, disk-timeout 0 (AC)' 'INFO'
+        return
+    }
+
+    # GUIDs: USB selective suspend setting, PCIe ASPM setting.
+    $usbSub = '2a737441-1930-4402-8d77-b2bebba308a3'; $usbSet = '48e6b7a6-50f5-4782-a5d4-53bb8f07e226'
+    $pciSub = '501a4d13-42af-4429-9fd1-a8218c268e20'; $pciSet = 'ee12f906-d277-404b-b6da-e5fa1a576df5'
+    try {
+        powercfg /SETACVALUEINDEX SCHEME_CURRENT $usbSub $usbSet 0 2>$null | Out-Null   # USB suspend off
+        powercfg /SETACVALUEINDEX SCHEME_CURRENT $pciSub $pciSet 0 2>$null | Out-Null   # PCIe ASPM off
+        powercfg /change disk-timeout-ac 0 2>$null | Out-Null                            # disk never sleeps
+        powercfg /SETACTIVE SCHEME_CURRENT 2>$null | Out-Null
+        Write-Log 'USB selective suspend off, PCIe ASPM off, disk no-sleep (AC)' 'OK'
+        Add-Change 'Power: USB-suspend/PCIe-ASPM off, disk no-sleep (Desktop/AC)'
+        Write-Log 'Revert: entfernt sich mit dem Power-Plan (-Revert setzt auf Balanced).' 'INFO'
+    } catch {
+        Write-Log "Power tweaks failed: $($_.Exception.Message)" 'WARN'
+    }
+}
+
+
+# ----- bundled: 12-Cleaner.ps1 -----
+# ============================================================================
+#  Module 12 - Temp / Disk cleaner  (both profiles, -SkipClean to skip)
+#  Deletes only well-known throwaway locations (user/Windows temp, Windows
+#  Update download cache, thumbnail cache) + empties the Recycle Bin. Reports
+#  freed space. Not registry/revertable - it's a cleaner; only safe temp paths.
+# ============================================================================
+
+function Get-PathSizeBytes {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return 0 }
+    try {
+        return ((Get-ChildItem -Path $Path -Recurse -Force -ErrorAction SilentlyContinue |
+                 Measure-Object -Property Length -Sum).Sum)
+    } catch { return 0 }
+}
+
+function Invoke-Module-Cleaner {
+    Write-Log '=== Module: Temp / Disk cleaner ===' 'STEP'
+
+    $targets = @(
+        $env:TEMP,
+        (Join-Path $env:windir 'Temp'),
+        (Join-Path $env:windir 'SoftwareDistribution\Download'),
+        (Join-Path $env:LOCALAPPDATA 'Temp'),
+        (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Explorer')   # thumbcache_*.db
+    ) | Select-Object -Unique
+
+    $freed = 0.0
+    foreach ($t in $targets) {
+        if (-not (Test-Path $t)) { continue }
+        $thumbs = ($t -like '*\Explorer')
+        $size = if ($thumbs) {
+            (Get-ChildItem $t -Filter 'thumbcache_*.db' -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+        } else { Get-PathSizeBytes $t }
+        if (-not $size) { continue }
+
+        if ($Global:Sel01Tweaker.DryRun) {
+            Write-Log ("DRYRUN clean {0} (~{1} MB)" -f $t, [math]::Round($size/1MB,1)) 'INFO'
+            $freed += $size; continue
+        }
+
+        $items = if ($thumbs) {
+            Get-ChildItem $t -Filter 'thumbcache_*.db' -Force -ErrorAction SilentlyContinue
+        } else { Get-ChildItem $t -Force -ErrorAction SilentlyContinue }
+        foreach ($i in $items) {
+            try { Remove-Item $i.FullName -Recurse -Force -ErrorAction Stop } catch {}   # skip in-use
+        }
+        $freed += $size
+        Write-Log ("cleaned {0} (~{1} MB)" -f $t, [math]::Round($size/1MB,1)) 'INFO'
+    }
+
+    # Recycle Bin
+    if ($Global:Sel01Tweaker.DryRun) {
+        Write-Log 'DRYRUN empty recycle bin' 'INFO'
+    } else {
+        try { Clear-RecycleBin -Force -ErrorAction Stop; Write-Log 'recycle bin emptied' 'INFO' } catch {}
+    }
+
+    $mb = [math]::Round($freed/1MB, 1)
+    Write-Log ("Cleaner: ~{0} MB Temp/Cache freigegeben" -f $mb) 'OK'
+    Add-Change ("Temp/Disk geleert (~$mb MB)")
+}
+
+
 
 # ---------------------------------------------------------------------------
 #  Load parts. When bundled into dist\Sel01Tweaker.ps1 the functions already
@@ -1266,7 +1390,9 @@ function Show-Overview {
         Write-Host '    6. Gaming        ' -ForegroundColor Cyan -NoNewline; Write-Host 'GameDVR aus; Game Mode + HAGS AN; MMCSS (audio-sicher)' -ForegroundColor Gray
         Write-Host '    7. FiveM         ' -ForegroundColor Cyan -NoNewline; Write-Host 'FSO/GPU/Prioritaet/Netzwerk (nur wenn FiveM installiert)' -ForegroundColor Gray
     }
-    Write-Host '    8. RAM-Cleaner   ' -ForegroundColor Cyan -NoNewline; Write-Host 'Speicher leeren + stuendlicher Hintergrund-Task' -ForegroundColor Gray
+    Write-Host '    8. Power (Desktop)' -ForegroundColor Cyan -NoNewline; Write-Host ' USB-Suspend/PCIe-ASPM aus (nur Desktop/Netzstrom)' -ForegroundColor Gray
+    Write-Host '    9. Cleaner       ' -ForegroundColor Cyan -NoNewline; Write-Host 'Temp/Update-Cache/Papierkorb leeren' -ForegroundColor Gray
+    Write-Host '   10. RAM-Cleaner   ' -ForegroundColor Cyan -NoNewline; Write-Host 'Speicher leeren + stuendlicher Hintergrund-Task' -ForegroundColor Gray
     Write-Host ''
     Write-Host '   Danach: Neustart empfohlen.  Rueckgaengig jederzeit mit Option [4].' -ForegroundColor DarkGray
     Show-Credits
@@ -1308,6 +1434,8 @@ function Invoke-Pipeline {
         @{ Name='PowerPlan';     Skip=$false;                           Run={ Invoke-Module-PowerPlan } },
         @{ Name='Gaming';        Skip=$false;                           Run={ Invoke-Module-Gaming } },
         @{ Name='FiveM';         Skip=$Global:Sel01Tweaker.SkipFiveM;   Run={ Invoke-Module-FiveM } },
+        @{ Name='Power';         Skip=$false;                           Run={ Invoke-Module-Power } },
+        @{ Name='Cleaner';       Skip=$Global:Sel01Tweaker.SkipClean;   Run={ Invoke-Module-Cleaner } },
         @{ Name='RamCleaner';    Skip=$false;                           Run={ Invoke-Module-RamCleaner -NoTask:$Global:Sel01Tweaker.NoRamTask } }
     )
     foreach ($s in $steps) {
@@ -1334,7 +1462,7 @@ function Invoke-Pipeline {
 #  Entry
 # ===========================================================================
 function Start-Sel01Tweaker {
-    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$NoRamTask,$DryRun)
+    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$SkipClean,$NoRamTask,$DryRun)
 
     # --- Self-elevate -----------------------------------------------------
     if (-not (Test-Admin)) {
@@ -1347,6 +1475,7 @@ function Start-Sel01Tweaker {
             if ($SkipDebloat) { $argline += '-SkipDebloat' }
             if ($SkipAI)      { $argline += '-SkipAI' }
             if ($SkipFiveM)   { $argline += '-SkipFiveM' }
+            if ($SkipClean)   { $argline += '-SkipClean' }
             if ($NoRamTask)   { $argline += '-NoRamTask' }
             if ($DryRun)      { $argline += '-DryRun' }
             Start-Process powershell.exe -Verb RunAs -ArgumentList $argline
@@ -1362,6 +1491,7 @@ function Start-Sel01Tweaker {
     $Global:Sel01Tweaker.SkipDebloat = [bool]$SkipDebloat
     $Global:Sel01Tweaker.SkipAI      = [bool]$SkipAI
     $Global:Sel01Tweaker.SkipFiveM   = [bool]$SkipFiveM
+    $Global:Sel01Tweaker.SkipClean   = [bool]$SkipClean
     $Global:Sel01Tweaker.NoRamTask   = [bool]$NoRamTask
 
     # --- Revert -----------------------------------------------------------

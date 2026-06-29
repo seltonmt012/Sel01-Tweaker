@@ -25,6 +25,7 @@ param(
     [switch]$SkipDebloat,
     [switch]$SkipAI,
     [switch]$SkipFiveM,
+    [switch]$SkipClean,
     [switch]$NoRamTask,
     [switch]$DryRun
 )
@@ -105,7 +106,9 @@ function Show-Overview {
         Write-Host '    6. Gaming        ' -ForegroundColor Cyan -NoNewline; Write-Host 'GameDVR aus; Game Mode + HAGS AN; MMCSS (audio-sicher)' -ForegroundColor Gray
         Write-Host '    7. FiveM         ' -ForegroundColor Cyan -NoNewline; Write-Host 'FSO/GPU/Prioritaet/Netzwerk (nur wenn FiveM installiert)' -ForegroundColor Gray
     }
-    Write-Host '    8. RAM-Cleaner   ' -ForegroundColor Cyan -NoNewline; Write-Host 'Speicher leeren + stuendlicher Hintergrund-Task' -ForegroundColor Gray
+    Write-Host '    8. Power (Desktop)' -ForegroundColor Cyan -NoNewline; Write-Host ' USB-Suspend/PCIe-ASPM aus (nur Desktop/Netzstrom)' -ForegroundColor Gray
+    Write-Host '    9. Cleaner       ' -ForegroundColor Cyan -NoNewline; Write-Host 'Temp/Update-Cache/Papierkorb leeren' -ForegroundColor Gray
+    Write-Host '   10. RAM-Cleaner   ' -ForegroundColor Cyan -NoNewline; Write-Host 'Speicher leeren + stuendlicher Hintergrund-Task' -ForegroundColor Gray
     Write-Host ''
     Write-Host '   Danach: Neustart empfohlen.  Rueckgaengig jederzeit mit Option [4].' -ForegroundColor DarkGray
     Show-Credits
@@ -147,6 +150,8 @@ function Invoke-Pipeline {
         @{ Name='PowerPlan';     Skip=$false;                           Run={ Invoke-Module-PowerPlan } },
         @{ Name='Gaming';        Skip=$false;                           Run={ Invoke-Module-Gaming } },
         @{ Name='FiveM';         Skip=$Global:Sel01Tweaker.SkipFiveM;   Run={ Invoke-Module-FiveM } },
+        @{ Name='Power';         Skip=$false;                           Run={ Invoke-Module-Power } },
+        @{ Name='Cleaner';       Skip=$Global:Sel01Tweaker.SkipClean;   Run={ Invoke-Module-Cleaner } },
         @{ Name='RamCleaner';    Skip=$false;                           Run={ Invoke-Module-RamCleaner -NoTask:$Global:Sel01Tweaker.NoRamTask } }
     )
     foreach ($s in $steps) {
@@ -173,7 +178,7 @@ function Invoke-Pipeline {
 #  Entry
 # ===========================================================================
 function Start-Sel01Tweaker {
-    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$NoRamTask,$DryRun)
+    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$SkipClean,$NoRamTask,$DryRun)
 
     # --- Self-elevate -----------------------------------------------------
     if (-not (Test-Admin)) {
@@ -186,6 +191,7 @@ function Start-Sel01Tweaker {
             if ($SkipDebloat) { $argline += '-SkipDebloat' }
             if ($SkipAI)      { $argline += '-SkipAI' }
             if ($SkipFiveM)   { $argline += '-SkipFiveM' }
+            if ($SkipClean)   { $argline += '-SkipClean' }
             if ($NoRamTask)   { $argline += '-NoRamTask' }
             if ($DryRun)      { $argline += '-DryRun' }
             Start-Process powershell.exe -Verb RunAs -ArgumentList $argline
@@ -201,6 +207,7 @@ function Start-Sel01Tweaker {
     $Global:Sel01Tweaker.SkipDebloat = [bool]$SkipDebloat
     $Global:Sel01Tweaker.SkipAI      = [bool]$SkipAI
     $Global:Sel01Tweaker.SkipFiveM   = [bool]$SkipFiveM
+    $Global:Sel01Tweaker.SkipClean   = [bool]$SkipClean
     $Global:Sel01Tweaker.NoRamTask   = [bool]$NoRamTask
 
     # --- Revert -----------------------------------------------------------

@@ -24,7 +24,24 @@ if (-not $Global:Sel01Tweaker) {
         IsWin11   = $true
         OSBuild   = 0
         OSName    = 'Windows'
+        IsLaptop  = $false
+        OnBattery = $false
     }
+}
+
+function Get-Sel01PowerInfo {
+    <#  Detects laptop vs desktop and AC vs battery so power tweaks can be
+        skipped on portables / on battery (where they hurt battery / devices).  #>
+    $bat = $null
+    try { $bat = Get-CimInstance Win32_Battery -ErrorAction Stop } catch {}
+    $chassis = @()
+    try { $chassis = @((Get-CimInstance Win32_SystemEnclosure -ErrorAction Stop).ChassisTypes) } catch {}
+    $laptopChassis = 8,9,10,11,12,14,18,21,30,31,32   # portable/laptop/notebook/tablet/convertible
+    $isLaptop = ($null -ne $bat) -or (($chassis | Where-Object { $laptopChassis -contains $_ }).Count -gt 0)
+    $onBattery = $false
+    if ($bat) { $onBattery = (@($bat)[0].BatteryStatus -eq 1) }   # 1 = discharging
+    $Global:Sel01Tweaker.IsLaptop  = [bool]$isLaptop
+    $Global:Sel01Tweaker.OnBattery = [bool]$onBattery
 }
 
 function Get-Sel01OSInfo {

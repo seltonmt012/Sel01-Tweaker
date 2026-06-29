@@ -60,6 +60,7 @@ Or, once hosted at a URL, the winutil-style one-liner (supports parameters):
 | `-SkipDebloat` | Skip the Win11Debloat download/run. |
 | `-SkipAI` | Skip the RemoveWindowsAI download/run. |
 | `-SkipFiveM` | Skip the FiveM tweaks (Gaming profile only). |
+| `-SkipClean` | Skip the temp/disk cleaner. |
 | `-NoRamTask` | Run the one-shot RAM clean but don't install the hourly task. |
 
 ## Undo
@@ -94,7 +95,9 @@ needed.
    real FiveM executables, `TdrDelay=8` GPU crash guard, Above-Normal process priority, and
    Nagle/delayed-ACK off on the active adapter. Skips cleanly if FiveM isn't installed. Only safe,
    reversible tweaks — deliberately excludes the harmful "hitreg booster" registry hacks (see PROGRESS.md).
-8. **RAM cleaner** — one-shot clean + optional hourly background task (native Win32, no GPL code).
+8. **Power** (Desktop on AC only) — USB selective suspend off, PCIe ASPM off, disk no-sleep; auto-skipped on laptops/battery.
+9. **Cleaner** — empties temp / Windows Update cache / thumbnail cache / Recycle Bin and reports freed space (`-SkipClean` to skip).
+10. **RAM cleaner** — one-shot clean + optional hourly background task (native Win32, no GPL code).
 
 ## Files
 

@@ -90,5 +90,10 @@ same file works both unbundled (src) and bundled (dist).
 
 `PROGRESS.md` is the running step log. **Each finished step: tick it in
 PROGRESS.md and commit** with a `step: <what>` message, recording the short hash.
+
+**Versioning/releases:** version is a single source of truth — `Version` in
+`src/lib/Common.ps1` (shown in banner + log). Every BIG update (new module/
+feature) gets a version bump + GitHub release via `.\release.ps1 -Version X.Y.Z`
+(SemVer: MINOR for new modules, PATCH for fixes). See `RELEASING.md`.
 Orchestrated steps need internet (they skip+log when offline); HAGS and the power
 plan need a reboot; HKCU changes apply to the current user only.

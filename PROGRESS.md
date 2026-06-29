@@ -17,6 +17,11 @@ RAM clean, and the standard Windows Performance Options.
 
 Commit message style: `step: <what>` (e.g. `step: add module 08 network tweaks`).
 
+**Release rule: every BIG update (new module/feature) gets a version bump + a
+GitHub release.** Bump `Version` in `src/lib/Common.ps1` (single source of truth),
+then run `.\release.ps1 -Version X.Y.Z` (builds, zips, commits, tags, publishes).
+See [RELEASING.md](RELEASING.md). Use SemVer: MINOR for new modules, PATCH for fixes.
+
 ## Status legend
 - [x] done & verified
 - [~] done, not yet tested on real Win11

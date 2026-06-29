@@ -55,7 +55,7 @@ function Show-Banner {
     Write-Host '        ___) |___) | |__| |_| | |_____|| |  \ V  V / ' -ForegroundColor Cyan
     Write-Host '       |____/|____/|_____\___/|_|      |_|   \_/\_/  ' -ForegroundColor Cyan
     Write-Host '   ====================================================' -ForegroundColor DarkCyan
-    Write-Host '        Windows 11  -  1-Klick Optimierung' -ForegroundColor White
+    Write-Host ('        Windows 10/11  -  1-Klick Optimierung   v{0}' -f $Global:Sel01Tweaker.Version) -ForegroundColor White
     Write-Host '   ====================================================' -ForegroundColor DarkCyan
     Write-Host ''
 }
@@ -135,7 +135,7 @@ function Invoke-Pipeline {
     $Global:Sel01Tweaker.SkippedCount = 0
 
     $os = Get-Sel01OSInfo
-    Write-Log "Sel01-Tweaker | $os (build $($Global:Sel01Tweaker.OSBuild)) | Profile=$Profile | DryRun=$DryRun" 'STEP'
+    Write-Log "Sel01-Tweaker v$($Global:Sel01Tweaker.Version) | $os (build $($Global:Sel01Tweaker.OSBuild)) | Profile=$Profile | DryRun=$DryRun" 'STEP'
 
     if (-not $Global:Sel01Tweaker.NoRestore) { New-Sel01TweakerRestorePoint }
     else { Write-Log 'Restore point skipped (-NoRestore)' 'WARN' }

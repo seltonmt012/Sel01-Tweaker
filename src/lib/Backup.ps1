@@ -31,6 +31,7 @@ function Save-Sel01TweakerBackup {
         Created  = $Global:Sel01Tweaker.Stamp
         PowerSchemeGuid = $Global:Sel01Tweaker.PowerSchemeGuid   # minted Ultimate-Performance GUID, if any
         RamTask  = $Global:Sel01Tweaker.RamTaskName              # scheduled task name, if created
+        TasksDisabled = $Global:Sel01Tweaker.TasksDisabled       # scheduled tasks we disabled (re-enabled on revert)
         Registry = $Global:Sel01Tweaker.Backup
     }
     $obj | ConvertTo-Json -Depth 6 | Set-Content -Path $Global:Sel01Tweaker.BackupFile -Encoding UTF8
@@ -90,6 +91,13 @@ function Invoke-Revert {
             powercfg /delete $data.PowerSchemeGuid 2>$null | Out-Null
             Write-Log "removed power scheme $($data.PowerSchemeGuid), reset to Balanced" 'INFO'
         } catch { Write-Log "power scheme revert failed: $($_.Exception.Message)" 'WARN' }
+    }
+
+    if ($data.TasksDisabled) {
+        foreach ($t in $data.TasksDisabled) {
+            try { schtasks /Change /TN $t /Enable 2>$null | Out-Null; Write-Log "re-enabled task $t" 'INFO' }
+            catch { Write-Log "task re-enable failed: $t" 'WARN' }
+        }
     }
 
     Broadcast-SettingChange

@@ -68,20 +68,7 @@ function Invoke-Module-WinutilTweaks {
             Set-ServiceStart $svc Manual
         }
 
-        # Disable known telemetry scheduled tasks (revert does NOT re-enable; noted in README)
-        $tasks = @(
-            '\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser',
-            '\Microsoft\Windows\Application Experience\ProgramDataUpdater',
-            '\Microsoft\Windows\Autochk\Proxy',
-            '\Microsoft\Windows\Customer Experience Improvement Program\Consolidator',
-            '\Microsoft\Windows\Customer Experience Improvement Program\UsbCeip',
-            '\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector'
-        )
-        foreach ($t in $tasks) {
-            if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN disable task: $t" 'INFO'; continue }
-            schtasks /Change /TN $t /Disable 2>$null | Out-Null
-        }
-        Add-Change 'Telemetry scheduled tasks disabled'
+        # (Telemetry scheduled tasks are handled centrally + revertably in module 10.)
 
         # Disable hibernation (frees disk; also kills Fast Startup)
         if (-not $Global:Sel01Tweaker.DryRun) { powercfg /hibernate off 2>$null | Out-Null }

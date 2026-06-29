@@ -78,6 +78,11 @@ needed.
 2. **AI removal** — Copilot, Recall, AI scheduled tasks, re-add protection (RemoveWindowsAI).
 3. **Native tweaks** — telemetry/activity-history/consumer-features/advertising-ID off,
    location denied, Delivery Optimization P2P off, Wi-Fi Sense off (+ service trim on Clean).
+   **+ Extra** (OS-aware): web-search/Copilot/Cortana off, Explorer QoL, Edge background off, LongPaths.
+   **+ Privacy+**: CEIP / Error-Reporting upload / speech / inking / Office & Edge & .NET/PS telemetry off,
+   cloud-clipboard sync off, Find My Device off, telemetry scheduled-task batch off (re-enabled on revert),
+   Update QoL (no forced reboot + active hours — updates stay on). Already-correct settings are skipped
+   (idempotent); nothing weakens Defender/SmartScreen.
 4. **Performance/Visual** — "best performance" effects, **keeping** window-drag contents,
    font smoothing, and thumbnails; transparency/animations off; 0ms menus; no startup delay;
    mouse acceleration off.

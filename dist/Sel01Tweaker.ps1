@@ -55,6 +55,7 @@ if (-not $Global:Sel01Tweaker) {
         BackupFile= $null
         Backup    = [System.Collections.Generic.List[object]]::new()
         Changes   = [System.Collections.Generic.List[string]]::new()
+        TasksDisabled = [System.Collections.Generic.List[string]]::new()
         RebootNeeded = $false
         SkippedCount = 0
         IsWin11   = $true
@@ -282,6 +283,35 @@ function Set-ServiceStart {
 }
 
 # ---------------------------------------------------------------------------
+#  Scheduled task disable (idempotent + revertable)
+#  Records each task we actually disable so -Revert can re-enable it.
+# ---------------------------------------------------------------------------
+function Disable-Task {
+    param([Parameter(Mandatory)][string]$Path)
+    if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN disable task: $Path" 'INFO'; return }
+    try {
+        $info = schtasks /Query /TN $Path /FO LIST 2>$null
+        if (-not $info) { Write-Log "task fehlt, skip: $Path" 'INFO'; return }
+        if ($info -match 'Disabled|Deaktiviert') {
+            $Global:Sel01Tweaker.SkippedCount++; Write-Log "task schon aus, skip: $Path" 'INFO'; return
+        }
+        schtasks /Change /TN $Path /Disable 2>$null | Out-Null
+        if (-not ($Global:Sel01Tweaker.TasksDisabled -contains $Path)) {
+            $Global:Sel01Tweaker.TasksDisabled.Add($Path) | Out-Null
+        }
+        Write-Log "task disabled: $Path" 'INFO'
+    } catch { Write-Log "task disable failed: $Path -> $($_.Exception.Message)" 'WARN' }
+}
+
+# ---------------------------------------------------------------------------
+#  Machine environment variable (revertable via Set-Reg snapshot)
+# ---------------------------------------------------------------------------
+function Set-MachineEnv {
+    param([Parameter(Mandatory)][string]$Name,[Parameter(Mandatory)][string]$Value,[string]$Note)
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' $Name String $Value -Note $Note
+}
+
+# ---------------------------------------------------------------------------
 #  UserPreferencesMask builder
 #  Deliberate per-byte construction of the "best performance" mask, keeping
 #  font-smoothing / drag-full-window behaviour.  Documented value:
@@ -400,6 +430,7 @@ function Save-Sel01TweakerBackup {
         Created  = $Global:Sel01Tweaker.Stamp
         PowerSchemeGuid = $Global:Sel01Tweaker.PowerSchemeGuid   # minted Ultimate-Performance GUID, if any
         RamTask  = $Global:Sel01Tweaker.RamTaskName              # scheduled task name, if created
+        TasksDisabled = $Global:Sel01Tweaker.TasksDisabled       # scheduled tasks we disabled (re-enabled on revert)
         Registry = $Global:Sel01Tweaker.Backup
     }
     $obj | ConvertTo-Json -Depth 6 | Set-Content -Path $Global:Sel01Tweaker.BackupFile -Encoding UTF8
@@ -459,6 +490,13 @@ function Invoke-Revert {
             powercfg /delete $data.PowerSchemeGuid 2>$null | Out-Null
             Write-Log "removed power scheme $($data.PowerSchemeGuid), reset to Balanced" 'INFO'
         } catch { Write-Log "power scheme revert failed: $($_.Exception.Message)" 'WARN' }
+    }
+
+    if ($data.TasksDisabled) {
+        foreach ($t in $data.TasksDisabled) {
+            try { schtasks /Change /TN $t /Enable 2>$null | Out-Null; Write-Log "re-enabled task $t" 'INFO' }
+            catch { Write-Log "task re-enable failed: $t" 'WARN' }
+        }
     }
 
     Broadcast-SettingChange
@@ -620,20 +658,7 @@ function Invoke-Module-WinutilTweaks {
             Set-ServiceStart $svc Manual
         }
 
-        # Disable known telemetry scheduled tasks (revert does NOT re-enable; noted in README)
-        $tasks = @(
-            '\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser',
-            '\Microsoft\Windows\Application Experience\ProgramDataUpdater',
-            '\Microsoft\Windows\Autochk\Proxy',
-            '\Microsoft\Windows\Customer Experience Improvement Program\Consolidator',
-            '\Microsoft\Windows\Customer Experience Improvement Program\UsbCeip',
-            '\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector'
-        )
-        foreach ($t in $tasks) {
-            if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN disable task: $t" 'INFO'; continue }
-            schtasks /Change /TN $t /Disable 2>$null | Out-Null
-        }
-        Add-Change 'Telemetry scheduled tasks disabled'
+        # (Telemetry scheduled tasks are handled centrally + revertably in module 10.)
 
         # Disable hibernation (frees disk; also kills Fast Startup)
         if (-not $Global:Sel01Tweaker.DryRun) { powercfg /hibernate off 2>$null | Out-Null }
@@ -1066,6 +1091,105 @@ function Invoke-Module-Extra {
 }
 
 
+# ----- bundled: 10-Privacy.ps1 -----
+# ============================================================================
+#  Module 10 - Privacy+ / Telemetry deep  (both profiles, Win10 + 11)
+#  Additive batch cross-referenced from OSS projects (Disassembler0, Sophia,
+#  privacy.sexy, hellzerg/optimizer) by two research passes. All SAFE +
+#  reversible; nothing here weakens Defender/SmartScreen, breaks updates,
+#  audio, printing, or other apps. Registry via Set-Reg (idempotent); telemetry
+#  tasks via Disable-Task (re-enabled on -Revert).
+# ============================================================================
+
+function Invoke-Module-Privacy {
+    Write-Log '=== Module: Privacy+ / Telemetry (deep) ===' 'STEP'
+
+    # --- CEIP / app-compat inventory -------------------------------------
+    Set-Reg 'HKLM:\SOFTWARE\Microsoft\SQMClient\Windows' 'CEIPEnable' DWord 0 -Note 'CEIP off'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\SQMClient\Windows' 'CEIPEnable' DWord 0
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'AITEnable' DWord 0 -Note 'App-impact telemetry off'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'DisableInventory' DWord 1
+
+    # --- Windows Error Reporting (upload only; local crash handling stays) -
+    Set-Reg 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting' 'Disabled' DWord 1 -Note 'Error Reporting upload off'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting' 'Disabled' DWord 1
+
+    # --- Tailored experiences / cloud-optimized content / ad policy -------
+    Set-Reg 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableTailoredExperiencesWithDiagnosticData' DWord 1 -Note 'Tailored experiences off (policy)'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableCloudOptimizedContent' DWord 1
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo' 'DisabledByGroupPolicy' DWord 1 -Note 'Advertising ID off (policy)'
+
+    # --- Speech / inking / typing personalization ------------------------
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Speech_OneCore\Settings\OnlineSpeechPrivacy' 'HasAccepted' DWord 0 -Note 'Online speech recognition off'
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\InputPersonalization' 'RestrictImplicitInkCollection' DWord 1 -Note 'Inking/typing data collection off'
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\InputPersonalization' 'RestrictImplicitTextCollection' DWord 1
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\InputPersonalization\TrainedDataStore' 'HarvestContacts' DWord 0
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Personalization\Settings' 'AcceptedPrivacyPolicy' DWord 0
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\TextInput' 'AllowLinguisticDataCollection' DWord 0
+    Set-Reg 'HKCU:\Control Panel\International\User Profile' 'HttpAcceptLanguageOptOut' DWord 1 -Note 'Website language-list access off'
+
+    # --- Feedback nags ---------------------------------------------------
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Siuf\Rules' 'NumberOfSIUFInPeriod' DWord 0 -Note 'Feedback frequency = never'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'DoNotShowFeedbackNotifications' DWord 1
+
+    # --- Cloud clipboard sync (local Win+V history kept) -----------------
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Clipboard' 'CloudClipboardAutomaticUpload' DWord 0 -Note 'Cloud clipboard sync off (local kept)'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'AllowCrossDeviceClipboard' DWord 0
+
+    # --- Find My Device ---------------------------------------------------
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\FindMyDevice' 'AllowFindMyDevice' DWord 0 -Note 'Find My Device off'
+
+    # --- Diagtrack ETW autologger ----------------------------------------
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\WMI\Autologger\AutoLogger-Diagtrack-Listener' 'Start' DWord 0 -Note 'Diagtrack ETW trace off'
+
+    # --- Edge telemetry (browser keeps working) --------------------------
+    $edge = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
+    Set-Reg $edge 'MetricsReportingEnabled'        DWord 0 -Note 'Edge telemetry/metrics off'
+    Set-Reg $edge 'SendSiteInfoToImproveServices'  DWord 0
+    Set-Reg $edge 'PersonalizationReportingEnabled' DWord 0
+    Set-Reg $edge 'UserFeedbackAllowed'            DWord 0
+
+    # --- Office telemetry (no-op if Office absent) -----------------------
+    Set-Reg 'HKCU:\SOFTWARE\Policies\Microsoft\office\common\clienttelemetry' 'sendtelemetry' DWord 3 -Note 'Office telemetry off (if installed)'
+    Set-Reg 'HKCU:\SOFTWARE\Policies\Microsoft\office\16.0\osm' 'enablelogging' DWord 0
+    Set-Reg 'HKCU:\SOFTWARE\Policies\Microsoft\office\16.0\osm' 'enableupload'  DWord 0
+
+    # --- Third-party dev-tool telemetry (machine env) --------------------
+    Set-MachineEnv 'DOTNET_CLI_TELEMETRY_OPTOUT' '1' -Note '.NET CLI telemetry off'
+    Set-MachineEnv 'POWERSHELL_TELEMETRY_OPTOUT' '1' -Note 'PowerShell 7 telemetry off'
+
+    # --- Explorer QoL: Quick Access MRU + Aero Shake ---------------------
+    $adv = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
+    Set-Reg $adv 'ShowRecent'      DWord 0 -Note 'Quick Access recent files off'
+    Set-Reg $adv 'ShowFrequent'    DWord 0
+    Set-Reg $adv 'DisallowShaking' DWord 1 -Note 'Aero Shake off'
+
+    # --- Update QoL: no forced reboot, active hours (updates NOT disabled)-
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'NoAutoRebootWithLoggedOnUsers' DWord 1 -Note 'No forced reboot while signed in'
+    $ux = 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings'
+    Set-Reg $ux 'SetActiveHours'   DWord 1 -Note 'Active hours 8-23'
+    Set-Reg $ux 'ActiveHoursStart' DWord 8
+    Set-Reg $ux 'ActiveHoursEnd'   DWord 23
+
+    # --- Telemetry / feedback scheduled tasks (re-enabled on revert) -----
+    foreach ($t in @(
+        '\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser',
+        '\Microsoft\Windows\Application Experience\ProgramDataUpdater',
+        '\Microsoft\Windows\Application Experience\AitAgent',
+        '\Microsoft\Windows\Customer Experience Improvement Program\Consolidator',
+        '\Microsoft\Windows\Customer Experience Improvement Program\UsbCeip',
+        '\Microsoft\Windows\Customer Experience Improvement Program\KernelCeipTask',
+        '\Microsoft\Windows\Autochk\Proxy',
+        '\Microsoft\Windows\Feedback\Siuf\DmClient',
+        '\Microsoft\Windows\Feedback\Siuf\DmClientOnScenarioDownload',
+        '\Microsoft\Windows\Windows Error Reporting\QueueReporting',
+        '\Microsoft\Windows\CloudExperienceHost\CreateObjectTask',
+        '\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector'
+    )) { Disable-Task $t }
+    Add-Change 'Telemetry/feedback scheduled tasks disabled (revertable)'
+}
+
+
 
 # ---------------------------------------------------------------------------
 #  Load parts. When bundled into dist\Sel01Tweaker.ps1 the functions already
@@ -1131,6 +1255,7 @@ function Show-Overview {
     Write-Host '    2. KI entfernen  ' -ForegroundColor Cyan -NoNewline; Write-Host 'Copilot, Recall, KI-Tasks entfernen (Download)' -ForegroundColor Gray
     Write-Host '    3. System-Tweaks ' -ForegroundColor Cyan -NoNewline; Write-Host 'Telemetrie/Tracking/Werbe-ID/Standort aus' -ForegroundColor Gray
     Write-Host '       + Extra       ' -ForegroundColor Cyan -NoNewline; Write-Host 'Web-Suche/Copilot/Cortana/Edge-Hintergrund aus, Explorer-QoL' -ForegroundColor Gray
+    Write-Host '       + Privacy+    ' -ForegroundColor Cyan -NoNewline; Write-Host 'CEIP/Error-Reporting/Speech/Inking/Office/Edge-Telemetrie + Telemetrie-Tasks aus' -ForegroundColor Gray
     Write-Host '    4. Performance   ' -ForegroundColor Cyan -NoNewline; Write-Host 'Beste-Leistung-Optik (3 Effekte bleiben an), kein Input-Delay' -ForegroundColor Gray
     Write-Host '    5. Power-Plan    ' -ForegroundColor Cyan -NoNewline; Write-Host 'Ultimate Performance' -ForegroundColor Gray
     if ($P -eq 'Clean') {
@@ -1178,6 +1303,7 @@ function Invoke-Pipeline {
         @{ Name='RemoveAI';      Skip=$Global:Sel01Tweaker.SkipAI;      Run={ Invoke-Module-RemoveAI } },
         @{ Name='WinutilTweaks'; Skip=$false;                           Run={ Invoke-Module-WinutilTweaks } },
         @{ Name='Extra';         Skip=$false;                           Run={ Invoke-Module-Extra } },
+        @{ Name='Privacy';       Skip=$false;                           Run={ Invoke-Module-Privacy } },
         @{ Name='Performance';   Skip=$false;                           Run={ Invoke-Module-Performance } },
         @{ Name='PowerPlan';     Skip=$false;                           Run={ Invoke-Module-PowerPlan } },
         @{ Name='Gaming';        Skip=$false;                           Run={ Invoke-Module-Gaming } },

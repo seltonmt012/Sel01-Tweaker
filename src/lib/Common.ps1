@@ -18,6 +18,7 @@ if (-not $Global:Sel01Tweaker) {
         BackupFile= $null
         Backup    = [System.Collections.Generic.List[object]]::new()
         Changes   = [System.Collections.Generic.List[string]]::new()
+        TasksDisabled = [System.Collections.Generic.List[string]]::new()
         RebootNeeded = $false
         SkippedCount = 0
         IsWin11   = $true
@@ -242,6 +243,35 @@ function Set-ServiceStart {
         return
     }
     Set-Reg -Path $path -Name 'Start' -Type DWord -Value $map[$StartupType] -Note $Note
+}
+
+# ---------------------------------------------------------------------------
+#  Scheduled task disable (idempotent + revertable)
+#  Records each task we actually disable so -Revert can re-enable it.
+# ---------------------------------------------------------------------------
+function Disable-Task {
+    param([Parameter(Mandatory)][string]$Path)
+    if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN disable task: $Path" 'INFO'; return }
+    try {
+        $info = schtasks /Query /TN $Path /FO LIST 2>$null
+        if (-not $info) { Write-Log "task fehlt, skip: $Path" 'INFO'; return }
+        if ($info -match 'Disabled|Deaktiviert') {
+            $Global:Sel01Tweaker.SkippedCount++; Write-Log "task schon aus, skip: $Path" 'INFO'; return
+        }
+        schtasks /Change /TN $Path /Disable 2>$null | Out-Null
+        if (-not ($Global:Sel01Tweaker.TasksDisabled -contains $Path)) {
+            $Global:Sel01Tweaker.TasksDisabled.Add($Path) | Out-Null
+        }
+        Write-Log "task disabled: $Path" 'INFO'
+    } catch { Write-Log "task disable failed: $Path -> $($_.Exception.Message)" 'WARN' }
+}
+
+# ---------------------------------------------------------------------------
+#  Machine environment variable (revertable via Set-Reg snapshot)
+# ---------------------------------------------------------------------------
+function Set-MachineEnv {
+    param([Parameter(Mandatory)][string]$Name,[Parameter(Mandatory)][string]$Value,[string]$Note)
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' $Name String $Value -Note $Note
 }
 
 # ---------------------------------------------------------------------------

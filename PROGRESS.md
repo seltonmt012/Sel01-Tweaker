@@ -60,6 +60,8 @@ Commit message style: `step: <what>` (e.g. `step: add module 08 network tweaks`)
 - [x] Profile gating correct (Gaming HwSchMode=2/GameMode on; Clean HwSchMode=1/GameMode off + extra trim)
 - [x] RAM-cleaner C# compiles (inline + minified scheduled-task twin) — fixed `using`-in-MemberDefinition + duplicate-using errors
 - [x] Git repo initialized, all files committed `00ad74a`
+- [x] `PROGRESS.md` + `.gitignore` (commit-per-step workflow) `e8609da`
+- [x] `CLAUDE.md` (commands, architecture, invariants) `4afa58c`
 
 ---
 

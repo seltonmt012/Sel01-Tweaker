@@ -69,18 +69,47 @@ function Show-Credits {
 }
 
 function Show-MainMenu {
+    # Simple by design: one obvious primary action, advanced stuff hidden.
     Show-Banner
     Write-Host '   Was moechtest du tun?' -ForegroundColor White
     Write-Host ''
-    Write-Host '     [1] ' -ForegroundColor Green -NoNewline; Write-Host 'GAMING       ' -ForegroundColor White -NoNewline; Write-Host '- empfohlen. Game Mode + HAGS bleiben an.' -ForegroundColor Gray
-    Write-Host '     [2] ' -ForegroundColor Green -NoNewline; Write-Host 'CLEAN        ' -ForegroundColor White -NoNewline; Write-Host '- maximales Debloat (Office/Allround).' -ForegroundColor Gray
-    Write-Host '     [3] ' -ForegroundColor Yellow -NoNewline; Write-Host 'TESTLAUF     ' -ForegroundColor White -NoNewline; Write-Host '- zeigt nur an, aendert NICHTS.' -ForegroundColor Gray
-    Write-Host '     [4] ' -ForegroundColor Magenta -NoNewline; Write-Host 'REPARATUR    ' -ForegroundColor White -NoNewline; Write-Host '- SFC/DISM + Netzwerk-Reset (on-demand).' -ForegroundColor Gray
-    Write-Host '     [5] ' -ForegroundColor Magenta -NoNewline; Write-Host 'DNS          ' -ForegroundColor White -NoNewline; Write-Host '- Cloudflare/Quad9 setzen (oder zuruecksetzen).' -ForegroundColor Gray
-    Write-Host '     [6] ' -ForegroundColor Cyan -NoNewline; Write-Host 'RUECKGAENGIG ' -ForegroundColor White -NoNewline; Write-Host '- letzten Lauf wieder zurueck.' -ForegroundColor Gray
-    Write-Host '     [7] ' -ForegroundColor DarkGray -NoNewline; Write-Host 'BEENDEN' -ForegroundColor White
+    Write-Host '     [1] ' -ForegroundColor Green -NoNewline; Write-Host 'JETZT OPTIMIEREN ' -ForegroundColor White -NoNewline; Write-Host '- empfohlen. Macht den PC schneller + sauberer.' -ForegroundColor Gray
+    Write-Host '     [2] ' -ForegroundColor Yellow -NoNewline; Write-Host 'NUR TESTEN       ' -ForegroundColor White -NoNewline; Write-Host '- zeigt nur an, aendert NICHTS.' -ForegroundColor Gray
+    Write-Host '     [3] ' -ForegroundColor Cyan -NoNewline; Write-Host 'MEHR / EXPERTE   ' -ForegroundColor White -NoNewline; Write-Host '- Clean-Modus, Reparatur, DNS, Rueckgaengig.' -ForegroundColor Gray
+    Write-Host '     [4] ' -ForegroundColor DarkGray -NoNewline; Write-Host 'BEENDEN' -ForegroundColor White
+    Write-Host ''
+    Write-Host '   Unsicher? Druecke 1.  Erst gucken? Druecke 2.' -ForegroundColor DarkGray
     Show-Credits
-    return (Read-Host '   Deine Wahl (1-7)')
+    return (Read-Host '   Deine Wahl (1-4)')
+}
+
+function Show-AdvancedMenu {
+    while ($true) {
+        Show-Banner
+        Write-Host '   MEHR / EXPERTE:' -ForegroundColor White
+        Write-Host ''
+        Write-Host '     [1] ' -ForegroundColor Green -NoNewline;  Write-Host 'CLEAN-MODUS    ' -ForegroundColor White -NoNewline; Write-Host '- maximales Aufraeumen (Office / kein Gaming).' -ForegroundColor Gray
+        Write-Host '     [2] ' -ForegroundColor Magenta -NoNewline;Write-Host 'REPARATUR      ' -ForegroundColor White -NoNewline; Write-Host '- kaputte Systemdateien + Netzwerk reparieren (dauert).' -ForegroundColor Gray
+        Write-Host '     [3] ' -ForegroundColor Magenta -NoNewline;Write-Host 'DNS AENDERN    ' -ForegroundColor White -NoNewline; Write-Host '- schnellere/privatere Internet-Aufloesung.' -ForegroundColor Gray
+        Write-Host '     [4] ' -ForegroundColor Cyan -NoNewline;   Write-Host 'RUECKGAENGIG   ' -ForegroundColor White -NoNewline; Write-Host '- letzten Lauf zurueckdrehen.' -ForegroundColor Gray
+        Write-Host '     [5] ' -ForegroundColor DarkGray -NoNewline; Write-Host 'ZURUECK' -ForegroundColor White
+        Show-Credits
+        $a = (Read-Host '   Wahl (1-5)').Trim()
+        switch ($a) {
+            '1' { if (Show-Overview -P 'Clean' -Dry $false) { Invoke-Pipeline -Profile 'Clean' -DryRun $false; Read-Host "`n   ENTER zurueck" } }
+            '2' { Invoke-Repair;  Read-Host "`n   ENTER zurueck" }
+            '3' { Invoke-DnsMenu; Read-Host "`n   ENTER zurueck" }
+            '4' {
+                Show-Banner
+                Write-Host '   RUECKGAENGIG - letzten Lauf zurueckdrehen.' -ForegroundColor Cyan
+                if ((Read-Host '   ENTER = los, X = Abbrechen') -notmatch '^[xX]') {
+                    Initialize-Run; Invoke-Revert; Read-Host "`n   ENTER zurueck"
+                }
+            }
+            '5' { return }
+            default { if ($a -match '^[xX]$') { return } }
+        }
+    }
 }
 
 function Show-Overview {
@@ -303,18 +332,9 @@ function Start-Sel01Tweaker {
         $c = Show-MainMenu
         switch ($c.Trim()) {
             '1' { if (Show-Overview -P 'Gaming' -Dry $false) { Invoke-Pipeline -Profile 'Gaming' -DryRun $false; Read-Host "`n   ENTER zum Menue" } }
-            '2' { if (Show-Overview -P 'Clean'  -Dry $false) { Invoke-Pipeline -Profile 'Clean'  -DryRun $false; Read-Host "`n   ENTER zum Menue" } }
-            '3' { if (Show-Overview -P 'Gaming' -Dry $true)  { Invoke-Pipeline -Profile 'Gaming' -DryRun $true;  Read-Host "`n   ENTER zum Menue" } }
-            '4' { Invoke-Repair;  Read-Host "`n   ENTER zum Menue" }
-            '5' { Invoke-DnsMenu; Read-Host "`n   ENTER zum Menue" }
-            '6' {
-                Show-Banner
-                Write-Host '   RUECKGAENGIG - letzten Lauf zurueckdrehen.' -ForegroundColor Cyan
-                if ((Read-Host '   ENTER = los, X = Abbrechen') -notmatch '^[xX]') {
-                    Initialize-Run; Invoke-Revert; Read-Host "`n   ENTER zum Menue"
-                }
-            }
-            '7' { return }
+            '2' { if (Show-Overview -P 'Gaming' -Dry $true)  { Invoke-Pipeline -Profile 'Gaming' -DryRun $true;  Read-Host "`n   ENTER zum Menue" } }
+            '3' { Show-AdvancedMenu }
+            '4' { return }
             default { if ($c -match '^[xX]$') { return } }
         }
     }

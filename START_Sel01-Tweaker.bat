@@ -1,13 +1,18 @@
 @echo off
 title Sel01-Tweaker
-chcp 65001 >nul
 
-:: --- Selbst als Administrator neu starten (UAC-Fenster bestaetigen) ---
-net session >nul 2>&1
+:: --- Selbst EINMAL als Administrator neu starten ---------------------------
+:: Arg-Guard "elevated" verhindert eine Endlosschleife. fltmc statt
+:: "net session" als Admin-Check (haengt nicht am Server-Dienst LanmanServer).
+if "%~1"=="elevated" goto admin
+fltmc >nul 2>&1
 if %errorlevel% neq 0 (
-    powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList 'elevated' -Verb RunAs"
     exit /b
 )
+
+:admin
+chcp 65001 >nul
 
 :menu
 cls

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Sel01Tweaker (working name; target brand **Sel01-Tweaker**) is a one-click, unattended
 Windows 11 debloat + performance optimizer written in PowerShell. One elevated
 run applies debloat, AI removal, registry/service tweaks, visual-effects perf
-settings, a power plan, gaming tweaks, and a native RAM cleaner — then exits.
+settings, a power plan, gaming tweaks, and a native RAM cleaner - then exits.
 No GUI. Creates a System Restore point and a per-value registry backup enabling `-Revert`.
 
 ## Commands
@@ -16,7 +16,7 @@ No GUI. Creates a System Restore point and a per-value registry backup enabling 
 # Build the single-file distributable (also syntax-validates it)
 .\build.ps1                       # -> dist\Sel01Tweaker.ps1
 
-# Tests — use run-checks.ps1, NOT Pester. Windows ships Pester 3.x; the
+# Tests - use run-checks.ps1, NOT Pester. Windows ships Pester 3.x; the
 # tests\Sel01Tweaker.Tests.ps1 specs are Pester v5 syntax and will NOT run on 3.x.
 powershell -ExecutionPolicy Bypass -File .\tests\run-checks.ps1
 
@@ -44,19 +44,19 @@ Invoke-Module-Performance        # or any Invoke-Module-* function
 functions in order, each wrapped so failures are non-fatal. Two libs + seven
 modules are **dot-sourced** at runtime from `src/`.
 
-- `src/lib/Common.ps1` — shared state + every primitive. **All registry/service
+- `src/lib/Common.ps1` - shared state + every primitive. **All registry/service
   writes go through `Set-Reg` / `Remove-Reg` / `Set-ServiceStart`.** These snapshot
   the prior value into `$Global:Sel01Tweaker.Backup` *before* writing and honor `DryRun`.
   Also: `Get-RegValueSafe`, `Build-PreferencesMask`, `Broadcast-SettingChange`
   (P/Invoke), `Invoke-Remote` (download+run upstream scripts).
-- `src/lib/Backup.ps1` — restore point, writes `Backup` + run metadata to a
+- `src/lib/Backup.ps1` - restore point, writes `Backup` + run metadata to a
   backup JSON, and `Invoke-Revert` reads it back to restore values / delete the
   minted power scheme / remove the RAM task.
-- `src/modules/01..07` — the stages. `01-Debloat` + `02-RemoveAI` **orchestrate**
+- `src/modules/01..07` - the stages. `01-Debloat` + `02-RemoveAI` **orchestrate**
   (download MIT upstream tools and run them silently). `03-WinutilTweaks`,
   `04-Performance`, `06-Gaming` are **native** (winutil has no headless mode, so
   its `tweaks.json` data is reimplemented as `Set-Reg` calls). `07-RamCleaner` is
-  an independent Win32 P/Invoke reimplementation (WinMemoryCleaner is GPL — no
+  an independent Win32 P/Invoke reimplementation (WinMemoryCleaner is GPL - no
   code copied).
 
 **Profiles** (`-Profile Gaming|Clean`) gate behavior inside modules via
@@ -65,7 +65,7 @@ Clean is maximum debloat.
 
 **Bundling.** `build.ps1` inlines libs+modules at the `#__SEL01TWEAKER_BUNDLE_INSERT__`
 marker in `src/Sel01Tweaker.ps1`, producing `dist/Sel01Tweaker.ps1` for `irm | iex`-style use.
-`dist/Sel01Tweaker.ps1` is **generated — never hand-edit it.** The entry guards its
+`dist/Sel01Tweaker.ps1` is **generated - never hand-edit it.** The entry guards its
 dot-source block (`if (-not (Get-Command Invoke-Module-Performance ...))`) so the
 same file works both unbundled (src) and bundled (dist).
 
@@ -73,11 +73,11 @@ same file works both unbundled (src) and bundled (dist).
 
 - **Never write the registry directly.** Use `Set-Reg`/`Remove-Reg`/`Set-ServiceStart`,
   or `-Revert` won't know how to undo it. Binary values must be `byte[]`; `Set-Reg`'s
-  `-Type` distinguishes `String` (REG_SZ) vs `DWord` — getting this wrong is the
+  `-Type` distinguishes `String` (REG_SZ) vs `DWord` - getting this wrong is the
   classic bug (e.g. `DragFullWindows`/`FontSmoothing`/`MouseSpeed` are REG_SZ).
 - **`param()` must stay the first statement** in `src/Sel01Tweaker.ps1`; the bundle marker
   sits right after it so libs/modules are injected without displacing `param`.
-- **`build.ps1` uses `.Replace()`, not `-replace`** — the bundle text contains `$`
+- **`build.ps1` uses `.Replace()`, not `-replace`** - the bundle text contains `$`
   and here-string terminators that regex replacement corrupts.
 - **`Add-Type -MemberDefinition` cannot contain `using` directives** (they'd land
   inside a class body). Pass namespaces via `-UsingNamespace`, and do NOT list
@@ -91,7 +91,7 @@ same file works both unbundled (src) and bundled (dist).
 `PROGRESS.md` is the running step log. **Each finished step: tick it in
 PROGRESS.md and commit** with a `step: <what>` message, recording the short hash.
 
-**Versioning/releases:** version is a single source of truth — `Version` in
+**Versioning/releases:** version is a single source of truth - `Version` in
 `src/lib/Common.ps1` (shown in banner + log). Every BIG update (new module/
 feature) gets a version bump + GitHub release via `.\release.ps1 -Version X.Y.Z`
 (SemVer: MINOR for new modules, PATCH for fixes). See `RELEASING.md`.

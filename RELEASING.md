@@ -3,9 +3,9 @@
 **Rule: every big update gets a version bump everywhere + a GitHub release.**
 Use [Semantic Versioning](https://semver.org): `MAJOR.MINOR.PATCH`.
 
-- **MAJOR** — breaking change (removed flag, changed revert format).
-- **MINOR** — new module/feature (e.g. a new tweak module). ← most of our updates.
-- **PATCH** — bug fix / tweak adjustment, no new feature.
+- **MAJOR** - breaking change (removed flag, changed revert format).
+- **MINOR** - new module/feature (e.g. a new tweak module). ← most of our updates.
+- **PATCH** - bug fix / tweak adjustment, no new feature.
 
 ## Single source of truth
 
@@ -26,7 +26,7 @@ This automatically:
 4. commits `release: v1.1.0`, tags `v1.1.0`, pushes `main` + tag
 5. creates the GitHub release (zip + single-file script + `release/NOTES.md`)
 
-Auth reuses the token already stored for `git push` (Credential Manager) — no
+Auth reuses the token already stored for `git push` (Credential Manager) - no
 separate `gh auth login` needed.
 
 > Before running: update `release/NOTES.md` with the highlights for this version
@@ -36,7 +36,7 @@ separate `gh auth login` needed.
 
 1. Bump `Version` in `src/lib/Common.ps1`.
 2. Update `release/NOTES.md`, `PROGRESS.md`, and `README.md` if usage changed.
-3. `.\build.ps1` and run `.\tests\run-checks.ps1` — must pass.
+3. `.\build.ps1` and run `.\tests\run-checks.ps1` - must pass.
 4. `git add -A && git commit -m "release: vX.Y.Z"`
 5. `git tag -a vX.Y.Z -m "Sel01-Tweaker vX.Y.Z" && git push origin main --tags`
 6. `gh release create vX.Y.Z release\Sel01-Tweaker.zip dist\Sel01Tweaker.ps1 --title "Sel01-Tweaker vX.Y.Z" --notes-file release\NOTES.md`

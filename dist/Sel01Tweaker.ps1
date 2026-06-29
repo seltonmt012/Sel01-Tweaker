@@ -49,7 +49,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.1.1'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.1.2'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -971,7 +971,7 @@ try{SetSystemFileCacheSize(new IntPtr(-1),new IntPtr(-1),0);}catch{}}
 #  Set-Reg so -Revert can undo it. Deliberately EXCLUDES the popular-but-harmful
 #  "hitreg" tweaks (SystemResponsiveness=0, Win32PrioritySeparation, QoS/Pacer
 #  disable, fixed TcpWindowSize, MouseSensitivity override, WaitToKillAppTimeout,
-#  TdrLevel=0, large pages, page-file/service kills) — see PROGRESS.md notes.
+#  TdrLevel=0, large pages, page-file/service kills) - see PROGRESS.md notes.
 #
 #  Honest scope note: FiveM gameplay traffic is UDP; the TCP Nagle/ACK tweaks
 #  below only help the connection/handshake/download path, NOT in-game ping.

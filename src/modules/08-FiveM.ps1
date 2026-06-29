@@ -4,7 +4,7 @@
 #  Set-Reg so -Revert can undo it. Deliberately EXCLUDES the popular-but-harmful
 #  "hitreg" tweaks (SystemResponsiveness=0, Win32PrioritySeparation, QoS/Pacer
 #  disable, fixed TcpWindowSize, MouseSensitivity override, WaitToKillAppTimeout,
-#  TdrLevel=0, large pages, page-file/service kills) — see PROGRESS.md notes.
+#  TdrLevel=0, large pages, page-file/service kills) - see PROGRESS.md notes.
 #
 #  Honest scope note: FiveM gameplay traffic is UDP; the TCP Nagle/ACK tweaks
 #  below only help the connection/handshake/download path, NOT in-game ping.

@@ -56,6 +56,7 @@ if (-not $Global:Sel01Tweaker) {
         Backup    = [System.Collections.Generic.List[object]]::new()
         Changes   = [System.Collections.Generic.List[string]]::new()
         RebootNeeded = $false
+        SkippedCount = 0
         IsWin11   = $true
         OSBuild   = 0
         OSName    = 'Windows'
@@ -161,10 +162,31 @@ function Get-RegValueSafe {
     return $result
 }
 
+function Test-RegValueEqual {
+    <#  True when an existing registry value already equals the target, so the
+        write can be skipped (idempotency - never re-force what's already set).
+        Normalises DWORD to uint32 so e.g. 0x80000001 (stored as int32 -2147...)
+        compares equal to the long literal.  #>
+    param($Current,[string]$Type,$Target)
+    switch ($Type) {
+        'Binary' {
+            $a = [byte[]]$Current; $b = [byte[]]$Target
+            if ($a.Length -ne $b.Length) { return $false }
+            for ($i=0; $i -lt $a.Length; $i++) { if ($a[$i] -ne $b[$i]) { return $false } }
+            return $true
+        }
+        'DWord' { return ((([int64]$Current) -band 0xFFFFFFFF) -eq (([int64]$Target) -band 0xFFFFFFFF)) }
+        'QWord' { return ([int64]$Current -eq [int64]$Target) }
+        'MultiString' { return ((@($Current) -join "`0") -eq (@($Target) -join "`0")) }
+        default { return ([string]$Current -eq [string]$Target) }   # String / ExpandString
+    }
+}
+
 function Set-Reg {
     <#  The single typed registry-write entry point used by every module.
-        - Snapshots the prior value into the backup list BEFORE writing
-          (enables -Revert).
+        - If the value is ALREADY correct, skips (no snapshot, no write, no
+          change recorded) so re-runs don't re-force settings you already have.
+        - Otherwise snapshots the prior value BEFORE writing (enables -Revert).
         - Honours DryRun (logs intent, writes nothing).
         - Handles String / ExpandString / DWord / QWord / Binary / MultiString.
         $Value for Binary must be a byte[].  #>
@@ -178,6 +200,13 @@ function Set-Reg {
     )
 
     $prior = Get-RegValueSafe -Path $Path -Name $Name
+
+    # --- Idempotency: already correct? skip entirely ----------------------
+    if ($prior.Exists -and ("$($prior.Kind)" -eq $Type) -and (Test-RegValueEqual $prior.Value $Type $Value)) {
+        $Global:Sel01Tweaker.SkippedCount++
+        Write-Log "schon ok, skip: $Path\$Name" 'INFO'
+        return
+    }
 
     # Record snapshot once per (Path,Name) so first-seen original wins.
     $already = $Global:Sel01Tweaker.Backup | Where-Object { $_.Path -eq $Path -and $_.Name -eq $Name }
@@ -214,6 +243,8 @@ function Remove-Reg {
     <#  Deletes a value; snapshots first so revert can re-create it.  #>
     param([string]$Path,[string]$Name,[string]$Note)
     $prior = Get-RegValueSafe -Path $Path -Name $Name
+    # Idempotency: nothing there -> nothing to remove.
+    if (-not $prior.Exists) { $Global:Sel01Tweaker.SkippedCount++; Write-Log "schon weg, skip: $Path\$Name" 'INFO'; return }
     $already = $Global:Sel01Tweaker.Backup | Where-Object { $_.Path -eq $Path -and $_.Name -eq $Name }
     if (-not $already) {
         $Global:Sel01Tweaker.Backup.Add([pscustomobject]@{
@@ -1134,6 +1165,7 @@ function Invoke-Pipeline {
     $Global:Sel01Tweaker.DryRun  = $DryRun
     $Global:Sel01Tweaker.Backup  = [System.Collections.Generic.List[object]]::new()
     $Global:Sel01Tweaker.Changes = [System.Collections.Generic.List[string]]::new()
+    $Global:Sel01Tweaker.SkippedCount = 0
 
     $os = Get-Sel01OSInfo
     Write-Log "Sel01-Tweaker | $os (build $($Global:Sel01Tweaker.OSBuild)) | Profile=$Profile | DryRun=$DryRun" 'STEP'
@@ -1164,6 +1196,7 @@ function Invoke-Pipeline {
     Write-Host ''
     Write-Log '============ FERTIG - Zusammenfassung ============' 'STEP'
     foreach ($c in $Global:Sel01Tweaker.Changes) { Write-Log " - $c" 'OK' }
+    Write-Log ("Geaendert: {0}  |  schon korrekt (uebersprungen): {1}" -f $Global:Sel01Tweaker.Changes.Count, $Global:Sel01Tweaker.SkippedCount) 'STEP'
     Write-Log "Backup: $($Global:Sel01Tweaker.BackupFile)" 'INFO'
     Write-Log "Log:    $($Global:Sel01Tweaker.LogFile)" 'INFO'
     if ($Global:Sel01Tweaker.RebootNeeded) { Write-Log 'NEUSTART empfohlen (HAGS / Power-Plan).' 'WARN' }

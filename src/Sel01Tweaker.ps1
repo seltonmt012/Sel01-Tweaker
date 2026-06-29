@@ -128,6 +128,7 @@ function Invoke-Pipeline {
     $Global:Sel01Tweaker.DryRun  = $DryRun
     $Global:Sel01Tweaker.Backup  = [System.Collections.Generic.List[object]]::new()
     $Global:Sel01Tweaker.Changes = [System.Collections.Generic.List[string]]::new()
+    $Global:Sel01Tweaker.SkippedCount = 0
 
     $os = Get-Sel01OSInfo
     Write-Log "Sel01-Tweaker | $os (build $($Global:Sel01Tweaker.OSBuild)) | Profile=$Profile | DryRun=$DryRun" 'STEP'
@@ -158,6 +159,7 @@ function Invoke-Pipeline {
     Write-Host ''
     Write-Log '============ FERTIG - Zusammenfassung ============' 'STEP'
     foreach ($c in $Global:Sel01Tweaker.Changes) { Write-Log " - $c" 'OK' }
+    Write-Log ("Geaendert: {0}  |  schon korrekt (uebersprungen): {1}" -f $Global:Sel01Tweaker.Changes.Count, $Global:Sel01Tweaker.SkippedCount) 'STEP'
     Write-Log "Backup: $($Global:Sel01Tweaker.BackupFile)" 'INFO'
     Write-Log "Log:    $($Global:Sel01Tweaker.LogFile)" 'INFO'
     if ($Global:Sel01Tweaker.RebootNeeded) { Write-Log 'NEUSTART empfohlen (HAGS / Power-Plan).' 'WARN' }

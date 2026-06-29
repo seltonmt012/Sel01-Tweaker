@@ -1,4 +1,6 @@
-# Sel01Tweaker — One-Click Windows 11 Optimizer
+# Sel01-Tweaker — One-Click Windows 10/11 Optimizer
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 One command. Runs once, unattended. Debloats, removes Windows AI/Copilot,
 applies performance + visual-effects tweaks, sets the Ultimate Performance power
@@ -122,3 +124,10 @@ Backups + logs live in `%ProgramData%\Sel01Tweaker\`.
 - The `UserPreferencesMask` "best performance" byte value is the widely-documented
   one — verify on a reference machine if you want byte-exact parity with your manual setup.
 - Test with `-DryRun` on a new machine before a real run.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Third-party attribution in [NOTICE.md](NOTICE.md).
+No third-party code is bundled: orchestrated tools are downloaded/run as-is,
+winutil-style tweaks and the RAM cleaner are independent reimplementations, so
+there is no GPL obligation. Provided without warranty — use at your own risk.

@@ -64,6 +64,9 @@ Commit message style: `step: <what>` (e.g. `step: add module 08 network tweaks`)
 - [x] `CLAUDE.md` (commands, architecture, invariants) `4afa58c`
 - [x] `START_Sel01-Tweaker.bat` — double-click launcher, self-elevates, 1-5 menu (Gaming/Clean/DryRun/Revert)
 - [x] `ANLEITUNG.md` — dead-simple German beginner guide (visual menu, FAQ, confirms perf settings auto-applied)
+- [x] **Fixed RemoveWindowsAI crash** ("-nonInteractive not in Options set"): `Invoke-Remote` now splats a hashtable by name; `-Options` passes as a real string[]. Modules 01/02 converted to hashtable params.
+- [x] **OS detection** `Get-Sel01OSInfo` (Win10 vs Win11 by build >=22000); logged at run start; `IsWin11` gates OS-specific tweaks.
+- [x] **Module 09-Extra** (both profiles, OS-aware) — researched via 2 fan-out subagents: web-search/Copilot/Cortana off, Explorer QoL (This PC, no "- Shortcut", no ad notifications), lock-screen/Settings suggestions off, Edge startup-boost/background off, NTFS last-access off + LongPaths; Win11-only (Start_TrackDocs, Taskbar End Task) / Win10-only (Bing/Cortana search) gated.
 - [x] **Interactive console UI** in the dist: banner + menu (Gaming/Clean/Testlauf/Revert/Exit), an **overview screen** listing exactly what each step does before running, confirm prompt, small credits footer. Non-interactive guard (stdin redirected → exits cleanly, no loop). `-Profile X` still runs directly for the one-liner.
 - [x] **build.bat** + simplified **START_Sel01-Tweaker.bat** — both launch PowerShell with `-ExecutionPolicy Bypass` (fixes the "scripts disabled" / Mark-of-the-Web build error from downloaded files). Launcher just elevates + runs the dist (UI lives in the ps1).
 - [x] Fixed launcher **elevation loop** (cmd reopening forever): `net session` fails as admin when LanmanServer is off → replaced with `fltmc` + an `elevated` arg-guard.

@@ -93,6 +93,7 @@ function Show-Overview {
     Write-Host '    1. Debloat       ' -ForegroundColor Cyan -NoNewline; Write-Host 'Bloat-Apps, Telemetrie, Bing/Werbung entfernen (Download)' -ForegroundColor Gray
     Write-Host '    2. KI entfernen  ' -ForegroundColor Cyan -NoNewline; Write-Host 'Copilot, Recall, KI-Tasks entfernen (Download)' -ForegroundColor Gray
     Write-Host '    3. System-Tweaks ' -ForegroundColor Cyan -NoNewline; Write-Host 'Telemetrie/Tracking/Werbe-ID/Standort aus' -ForegroundColor Gray
+    Write-Host '       + Extra       ' -ForegroundColor Cyan -NoNewline; Write-Host 'Web-Suche/Copilot/Cortana/Edge-Hintergrund aus, Explorer-QoL' -ForegroundColor Gray
     Write-Host '    4. Performance   ' -ForegroundColor Cyan -NoNewline; Write-Host 'Beste-Leistung-Optik (3 Effekte bleiben an), kein Input-Delay' -ForegroundColor Gray
     Write-Host '    5. Power-Plan    ' -ForegroundColor Cyan -NoNewline; Write-Host 'Ultimate Performance' -ForegroundColor Gray
     if ($P -eq 'Clean') {
@@ -138,6 +139,7 @@ function Invoke-Pipeline {
         @{ Name='Debloat';       Skip=$Global:Sel01Tweaker.SkipDebloat; Run={ Invoke-Module-Debloat } },
         @{ Name='RemoveAI';      Skip=$Global:Sel01Tweaker.SkipAI;      Run={ Invoke-Module-RemoveAI } },
         @{ Name='WinutilTweaks'; Skip=$false;                           Run={ Invoke-Module-WinutilTweaks } },
+        @{ Name='Extra';         Skip=$false;                           Run={ Invoke-Module-Extra } },
         @{ Name='Performance';   Skip=$false;                           Run={ Invoke-Module-Performance } },
         @{ Name='PowerPlan';     Skip=$false;                           Run={ Invoke-Module-PowerPlan } },
         @{ Name='Gaming';        Skip=$false;                           Run={ Invoke-Module-Gaming } },

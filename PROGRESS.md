@@ -69,6 +69,7 @@ See [RELEASING.md](RELEASING.md). Use SemVer: MINOR for new modules, PATCH for f
 - [x] `CLAUDE.md` (commands, architecture, invariants) `4afa58c`
 - [x] `START_Sel01-Tweaker.bat` — double-click launcher, self-elevates, 1-5 menu (Gaming/Clean/DryRun/Revert)
 - [x] `ANLEITUNG.md` — dead-simple German beginner guide (visual menu, FAQ, confirms perf settings auto-applied)
+- [x] **v1.1.0** — Reparatur menu (SFC/DISM RestoreHealth/WinSxS cleanup/DNS flush/Winsock+IP reset), DNS switcher (Cloudflare/Quad9/reset), Tips screen after each run, version shown in banner+log. Researched via a 5th fan-out subagent vs O&O ShutUp10/Wintoys/WinUtil/BleachBit/privacy.sexy; excluded unsafe (Edge/WebView2 removal, IPv6 disable, Modern Standby off, Defender/Update off, pagefile off, SSD defrag).
 - [x] **Module 11-Power** — laptop/desktop + AC/battery detection (`Get-Sel01PowerInfo`); applies USB-selective-suspend off, PCIe ASPM off, disk no-sleep ONLY on a desktop on AC (skips on laptop/battery). Reverts with the power plan.
 - [x] **Module 12-Cleaner** (`-SkipClean`) — empties user/Windows temp, Windows Update download cache, thumbnail cache, Recycle Bin; reports freed MB. DryRun reports sizes without deleting (found ~4.8 GB on the dev box).
 - [x] **MIT LICENSE** added (copyright seltonmt012); README badge + Win10/11 title + license section.

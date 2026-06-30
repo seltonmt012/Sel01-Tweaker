@@ -25,6 +25,8 @@ Initialize-Ui
 ok 'ui non-fancy when redirected' ($Global:Sel01Tweaker.UI.Fancy -eq $false)
 ok 'module Network exists' ([bool](Get-Command Invoke-Module-Network -ErrorAction SilentlyContinue))
 ok 'module Gpu exists'     ([bool](Get-Command Invoke-Module-Gpu     -ErrorAction SilentlyContinue))
+ok 'module Features exists'([bool](Get-Command Invoke-Module-Features -ErrorAction SilentlyContinue))
+ok 'feature helper exists' ([bool](Get-Command Disable-Sel01Feature  -ErrorAction SilentlyContinue))
 
 $Global:Sel01Tweaker.DryRun = $false
 $Global:Sel01Tweaker.Backup = [System.Collections.Generic.List[object]]::new()

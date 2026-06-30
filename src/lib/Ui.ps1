@@ -10,7 +10,7 @@
 # is fine; the bar clamps to 99% until the module returns, then snaps to 100%.
 $Global:Sel01TweakerUiEst = @{
     Debloat=6; RemoveAI=4; WinutilTweaks=20; Extra=15; Privacy=20; Performance=17;
-    PowerPlan=4; Gaming=15; Network=6; Gpu=6; FiveM=10; Power=6; Cleaner=8; RamCleaner=4
+    PowerPlan=4; Gaming=15; Network=6; Gpu=6; Features=10; FiveM=10; Power=8; Cleaner=8; RamCleaner=4
 }
 
 function Get-Sel01Bar {

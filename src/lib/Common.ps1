@@ -11,7 +11,7 @@
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.4.0'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.5.0'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -20,6 +20,8 @@ if (-not $Global:Sel01Tweaker) {
         Backup    = [System.Collections.Generic.List[object]]::new()
         Changes   = [System.Collections.Generic.List[string]]::new()
         TasksDisabled = [System.Collections.Generic.List[string]]::new()
+        FeaturesDisabled = [System.Collections.Generic.List[string]]::new()
+        CapabilitiesRemoved = [System.Collections.Generic.List[string]]::new()
         RebootNeeded = $false
         SkippedCount = 0
         IsWin11   = $true
@@ -293,6 +295,43 @@ function Disable-Task {
         }
         Write-Log "task disabled: $Path" 'INFO'
     } catch { Write-Log "task disable failed: $Path -> $($_.Exception.Message)" 'WARN' }
+}
+
+# ---------------------------------------------------------------------------
+#  Optional Windows features / capabilities (idempotent + revertable)
+#  Records what we actually turned off so -Revert can re-enable / re-add it.
+#  DISM changes need a reboot to finalise.
+# ---------------------------------------------------------------------------
+function Disable-Sel01Feature {
+    param([Parameter(Mandatory)][string]$Name)
+    if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN disable feature: $Name" 'INFO'; return }
+    try {
+        $f = Get-WindowsOptionalFeature -Online -FeatureName $Name -ErrorAction Stop
+        if (-not $f) { Write-Log "feature fehlt, skip: $Name" 'INFO'; return }
+        if ("$($f.State)" -like 'Disabled*') { $Global:Sel01Tweaker.SkippedCount++; Write-Log "feature schon aus, skip: $Name" 'INFO'; return }
+        Disable-WindowsOptionalFeature -Online -FeatureName $Name -NoRestart -ErrorAction Stop | Out-Null
+        if (-not ($Global:Sel01Tweaker.FeaturesDisabled -contains $Name)) { $Global:Sel01Tweaker.FeaturesDisabled.Add($Name) | Out-Null }
+        $Global:Sel01Tweaker.RebootNeeded = $true
+        Write-Log "feature disabled: $Name" 'INFO'
+    } catch { Write-Log "feature disable failed: $Name -> $($_.Exception.Message)" 'WARN' }
+}
+
+function Remove-Sel01Capability {
+    <#  $InstalledCaps is an optional pre-fetched Get-WindowsCapability list (that
+        call is slow, so callers can fetch once and pass it in). $Name is a prefix
+        before the ~~~~ version suffix.  #>
+    param([Parameter(Mandatory)][string]$Name, $InstalledCaps)
+    if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN remove capability: $Name" 'INFO'; return }
+    try {
+        if (-not $InstalledCaps) { $InstalledCaps = Get-WindowsCapability -Online -ErrorAction Stop }
+        $hits = @($InstalledCaps | Where-Object { $_.Name -like "$Name*" -and "$($_.State)" -eq 'Installed' })
+        if (-not $hits) { Write-Log "capability nicht installiert, skip: $Name" 'INFO'; return }
+        foreach ($c in $hits) {
+            Remove-WindowsCapability -Online -Name $c.Name -ErrorAction Stop | Out-Null
+            if (-not ($Global:Sel01Tweaker.CapabilitiesRemoved -contains $c.Name)) { $Global:Sel01Tweaker.CapabilitiesRemoved.Add($c.Name) | Out-Null }
+            Write-Log "capability removed: $($c.Name)" 'INFO'
+        }
+    } catch { Write-Log "capability remove failed: $Name -> $($_.Exception.Message)" 'WARN' }
 }
 
 # ---------------------------------------------------------------------------

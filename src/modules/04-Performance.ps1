@@ -40,6 +40,7 @@ function Invoke-Module-Performance {
 
     # --- Remove app startup delay ----------------------------------------
     Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'StartupDelayInMSec' DWord 0 -Note 'Startup app delay -> 0'
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'WaitForIdleState'   DWord 0
 
     # Optional: disable mouse acceleration (1:1 input). Applied in both profiles
     # since it never hurts; revertable like everything else.

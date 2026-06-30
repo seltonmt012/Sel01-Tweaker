@@ -100,7 +100,19 @@ function Invoke-Module-Privacy {
         '\Microsoft\Windows\Power Efficiency Diagnostics\AnalyzeSystem',
         '\Microsoft\Windows\Maintenance\WinSAT',
         '\Microsoft\Windows\NetTrace\GatherNetworkInfo',
-        '\Microsoft\Windows\PI\Sqm-Tasks'
+        '\Microsoft\Windows\PI\Sqm-Tasks',
+        '\Microsoft\Office\OfficeTelemetryAgentLogOn',
+        '\Microsoft\Office\OfficeTelemetryAgentFallBack'
     )) { Disable-Task $t }
     Add-Change 'Telemetry/feedback scheduled tasks disabled (revertable)'
+
+    # --- Clean-only: online speech models + cellular metadata ------------
+    # Speech models: only safe if voice typing is unused. MNO parser: leave on
+    # for cellular laptops, so desktop/Clean only.
+    if ($Global:Sel01Tweaker.Profile -eq 'Clean') {
+        foreach ($t in @(
+            '\Microsoft\Windows\Speech\SpeechModelDownloadTask',
+            '\Microsoft\Windows\Mobile Broadband Accounts\MNO Metadata Parser'
+        )) { Disable-Task $t }
+    }
 }

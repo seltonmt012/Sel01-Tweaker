@@ -51,7 +51,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.4.0'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.5.0'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -60,6 +60,8 @@ if (-not $Global:Sel01Tweaker) {
         Backup    = [System.Collections.Generic.List[object]]::new()
         Changes   = [System.Collections.Generic.List[string]]::new()
         TasksDisabled = [System.Collections.Generic.List[string]]::new()
+        FeaturesDisabled = [System.Collections.Generic.List[string]]::new()
+        CapabilitiesRemoved = [System.Collections.Generic.List[string]]::new()
         RebootNeeded = $false
         SkippedCount = 0
         IsWin11   = $true
@@ -336,6 +338,43 @@ function Disable-Task {
 }
 
 # ---------------------------------------------------------------------------
+#  Optional Windows features / capabilities (idempotent + revertable)
+#  Records what we actually turned off so -Revert can re-enable / re-add it.
+#  DISM changes need a reboot to finalise.
+# ---------------------------------------------------------------------------
+function Disable-Sel01Feature {
+    param([Parameter(Mandatory)][string]$Name)
+    if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN disable feature: $Name" 'INFO'; return }
+    try {
+        $f = Get-WindowsOptionalFeature -Online -FeatureName $Name -ErrorAction Stop
+        if (-not $f) { Write-Log "feature fehlt, skip: $Name" 'INFO'; return }
+        if ("$($f.State)" -like 'Disabled*') { $Global:Sel01Tweaker.SkippedCount++; Write-Log "feature schon aus, skip: $Name" 'INFO'; return }
+        Disable-WindowsOptionalFeature -Online -FeatureName $Name -NoRestart -ErrorAction Stop | Out-Null
+        if (-not ($Global:Sel01Tweaker.FeaturesDisabled -contains $Name)) { $Global:Sel01Tweaker.FeaturesDisabled.Add($Name) | Out-Null }
+        $Global:Sel01Tweaker.RebootNeeded = $true
+        Write-Log "feature disabled: $Name" 'INFO'
+    } catch { Write-Log "feature disable failed: $Name -> $($_.Exception.Message)" 'WARN' }
+}
+
+function Remove-Sel01Capability {
+    <#  $InstalledCaps is an optional pre-fetched Get-WindowsCapability list (that
+        call is slow, so callers can fetch once and pass it in). $Name is a prefix
+        before the ~~~~ version suffix.  #>
+    param([Parameter(Mandatory)][string]$Name, $InstalledCaps)
+    if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN remove capability: $Name" 'INFO'; return }
+    try {
+        if (-not $InstalledCaps) { $InstalledCaps = Get-WindowsCapability -Online -ErrorAction Stop }
+        $hits = @($InstalledCaps | Where-Object { $_.Name -like "$Name*" -and "$($_.State)" -eq 'Installed' })
+        if (-not $hits) { Write-Log "capability nicht installiert, skip: $Name" 'INFO'; return }
+        foreach ($c in $hits) {
+            Remove-WindowsCapability -Online -Name $c.Name -ErrorAction Stop | Out-Null
+            if (-not ($Global:Sel01Tweaker.CapabilitiesRemoved -contains $c.Name)) { $Global:Sel01Tweaker.CapabilitiesRemoved.Add($c.Name) | Out-Null }
+            Write-Log "capability removed: $($c.Name)" 'INFO'
+        }
+    } catch { Write-Log "capability remove failed: $Name -> $($_.Exception.Message)" 'WARN' }
+}
+
+# ---------------------------------------------------------------------------
 #  Machine environment variable (revertable via Set-Reg snapshot)
 # ---------------------------------------------------------------------------
 function Set-MachineEnv {
@@ -463,6 +502,8 @@ function Save-Sel01TweakerBackup {
         PowerSchemeGuid = $Global:Sel01Tweaker.PowerSchemeGuid   # minted Ultimate-Performance GUID, if any
         RamTask  = $Global:Sel01Tweaker.RamTaskName              # scheduled task name, if created
         TasksDisabled = $Global:Sel01Tweaker.TasksDisabled       # scheduled tasks we disabled (re-enabled on revert)
+        FeaturesDisabled = $Global:Sel01Tweaker.FeaturesDisabled # optional features we disabled (re-enabled on revert)
+        CapabilitiesRemoved = $Global:Sel01Tweaker.CapabilitiesRemoved # capabilities we removed (re-added on revert)
         Registry = $Global:Sel01Tweaker.Backup
     }
     $obj | ConvertTo-Json -Depth 6 | Set-Content -Path $Global:Sel01Tweaker.BackupFile -Encoding UTF8
@@ -531,6 +572,20 @@ function Invoke-Revert {
         }
     }
 
+    if ($data.FeaturesDisabled) {
+        foreach ($f in $data.FeaturesDisabled) {
+            try { Enable-WindowsOptionalFeature -Online -FeatureName $f -All -NoRestart -ErrorAction Stop | Out-Null; Write-Log "re-enabled feature $f (reboot to finalise)" 'INFO' }
+            catch { Write-Log "feature re-enable failed: $f -> $($_.Exception.Message)" 'WARN' }
+        }
+    }
+
+    if ($data.CapabilitiesRemoved) {
+        foreach ($c in $data.CapabilitiesRemoved) {
+            try { Add-WindowsCapability -Online -Name $c -ErrorAction Stop | Out-Null; Write-Log "re-added capability $c" 'INFO' }
+            catch { Write-Log "capability re-add failed: $c -> $($_.Exception.Message)" 'WARN' }
+        }
+    }
+
     Broadcast-SettingChange
     Write-Log 'Revert complete. A sign-out / reboot finalises all changes.' 'OK'
     Write-Log 'Note: apps removed by debloat are NOT reinstalled by revert (use winget/Store).' 'WARN'
@@ -550,7 +605,7 @@ function Invoke-Revert {
 # is fine; the bar clamps to 99% until the module returns, then snaps to 100%.
 $Global:Sel01TweakerUiEst = @{
     Debloat=6; RemoveAI=4; WinutilTweaks=20; Extra=15; Privacy=20; Performance=17;
-    PowerPlan=4; Gaming=15; Network=6; Gpu=6; FiveM=10; Power=6; Cleaner=8; RamCleaner=4
+    PowerPlan=4; Gaming=15; Network=6; Gpu=6; Features=10; FiveM=10; Power=8; Cleaner=8; RamCleaner=4
 }
 
 function Get-Sel01Bar {
@@ -724,29 +779,27 @@ function Invoke-Module-Debloat {
 
 # ----- bundled: 02-RemoveAI.ps1 -----
 # ============================================================================
-#  Module 02 - RemoveAI  (orchestrates zoicware/RemoveWindowsAI, MIT)
-#  Params passed as a hashtable so -nonInteractive binds as a switch and
-#  -Options passes as a real string[] (each element validated by the script's
-#  ValidateSet). Gaming = lighter option set, Clean = -AllOptions.
-#  Recall is Win11-only; the script handles missing components gracefully, so
-#  it is safe to run on Windows 10 too (Copilot exists there as well).
+#  Module 02 - RemoveAI  (NATIVE reimplementation)
+#  The upstream zoicware/RemoveWindowsAI script is chronically broken on current
+#  Win11 builds (26x00): cascading runtime bugs - an array-index returns the
+#  whole @('0','1') array (Object[]->Int32), then an int reaches a [switch]
+#  param (Int32->SwitchParameter) - so it aborts before doing anything. Rather
+#  than fork its 400KB, we reimplement the high-value, documented, reversible AI
+#  switch-offs natively via Set-Reg (like modules 03/04/10 do for winutil), plus
+#  a debloat-style removal of the Copilot app. Reliable, no download dependency.
 # ============================================================================
 
 function Invoke-Module-RemoveAI {
-    Write-Log '=== Module: Remove Windows AI ===' 'STEP'
+    Write-Log '=== Module: Remove Windows AI (native) ===' 'STEP'
 
-    # --- Native, reliable, reversible AI policy disables (run first) ------
-    # The upstream RemoveWindowsAI script does deep appx/CBS surgery that can
-    # crash on newer builds (e.g. a settings.dat editor hitting an array value);
-    # its failure is caught below and never aborts the run, but the high-value
-    # AI switch-offs are documented policy keys we set natively via Set-Reg so
-    # they always apply and revert cleanly.
-    $copilotHKLM = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot'
-    $copilotHKCU = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot'
-    Set-Reg $copilotHKLM 'TurnOffWindowsCopilot' DWord 1 -Note 'Windows Copilot off (policy)'
-    Set-Reg $copilotHKCU 'TurnOffWindowsCopilot' DWord 1
+    # --- Copilot off (policy + shell eligibility + taskbar button) -------
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' DWord 1 -Note 'Windows Copilot off (policy)'
+    Set-Reg 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' DWord 1
     Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowCopilotButton' DWord 0 -Note 'Copilot taskbar button off'
+    Set-Reg 'HKLM:\SOFTWARE\Microsoft\Windows\Shell\Copilot\BingChat' 'IsUserEligible' DWord 0 -Note 'Copilot eligibility off'
+    Set-Reg 'HKLM:\SOFTWARE\Microsoft\Windows\Shell\Copilot' 'IsCopilotAvailable' DWord 0
 
+    # --- Recall / Click to Do / Windows AI data analysis off -------------
     $winAiHKLM = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI'
     $winAiHKCU = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI'
     Set-Reg $winAiHKLM 'DisableAIDataAnalysis' DWord 1 -Note 'Recall (AI data analysis) off (policy)'
@@ -754,31 +807,34 @@ function Invoke-Module-RemoveAI {
     Set-Reg $winAiHKLM 'DisableClickToDo'      DWord 1 -Note 'Click to Do off (policy)'
     Set-Reg $winAiHKCU 'DisableClickToDo'      DWord 1
 
+    # --- App AI: Notepad, Paint, Edge Copilot sidebar --------------------
     Set-Reg 'HKCU:\SOFTWARE\Microsoft\Notepad' 'DisableAIFeatures' DWord 1 -Note 'Notepad AI features off'
     Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' DWord 0 -Note 'Edge Copilot sidebar off'
 
-    $url = 'https://raw.githubusercontent.com/zoicware/RemoveWindowsAI/main/RemoveWindowsAi.ps1'
-
-    if ($Global:Sel01Tweaker.Profile -eq 'Clean') {
-        $params = @{ nonInteractive = $true; AllOptions = $true }
-    } else {
-        # Gaming: strip Copilot/Recall + re-add protection, skip the heaviest
-        # CBS/file surgery to keep the run fast and low-risk.
-        $params = @{
-            nonInteractive = $true
-            Options = @(
-                'DisableRegKeys',
-                'PreventAIPackageReinstall',
-                'DisableCopilotPolicies',
-                'RemoveAppxPackages',
-                'RemoveRecallFeature',
-                'RemoveWindowsAITasks',
-                'UpdateCleanupCheck'
-            )
-        }
+    # --- Recall optional feature off (Copilot+ 24H2 only; no-op elsewhere) -
+    if (-not $Global:Sel01Tweaker.DryRun) {
+        try {
+            $recall = Get-WindowsOptionalFeature -Online -FeatureName 'Recall' -ErrorAction SilentlyContinue
+            if ($recall -and "$($recall.State)" -notlike 'Disabled*') { Disable-Sel01Feature 'Recall' }
+        } catch {}
     }
 
-    Invoke-Remote -Name 'RemoveWindowsAI' -Url $url -Params $params
+    # --- Remove the Copilot app (debloat-style; like module 01, NOT restored
+    #     by -Revert - reinstall from the Store/winget if ever wanted) -------
+    if ($Global:Sel01Tweaker.DryRun) {
+        Write-Log 'DRYRUN: would remove Copilot app + provisioned package' 'INFO'
+        return
+    }
+    foreach ($pkg in 'Microsoft.Copilot','Microsoft.Windows.Ai.Copilot.Provider') {
+        try {
+            $p = Get-AppxPackage -AllUsers -Name $pkg -ErrorAction SilentlyContinue
+            if ($p) { $p | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue; Write-Log "removed appx: $pkg" 'INFO' }
+            Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+                Where-Object { $_.DisplayName -eq $pkg } |
+                ForEach-Object { Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue | Out-Null }
+        } catch { Write-Log "appx remove failed: $pkg -> $($_.Exception.Message)" 'WARN' }
+    }
+    Add-Change 'Windows AI off (Copilot/Recall/Click-to-Do/Notepad+Edge AI) + Copilot app removed'
 }
 
 
@@ -844,10 +900,16 @@ function Invoke-Module-WinutilTweaks {
     # Deliberately NOT touched: Defender/Update/firewall/crypto, Print Spooler
     # (printing), Bluetooth (headsets/controllers), Audio, networking core.
     foreach ($svc in 'Fax','WMPNetworkSvc','WerSvc','MapsBroker','RetailDemo',
-                      'lfsvc','PhoneSvc','diagsvc','WpcMonSvc','RemoteRegistry') {
+                      'lfsvc','PhoneSvc','diagsvc','WpcMonSvc','RemoteRegistry',
+                      'DPS','SensorService') {
         Set-ServiceStart $svc Manual
     }
+    # AllJoyn IoT routing - effectively never used on a gaming PC.
+    Set-ServiceStart 'AJRouter' Disabled
     Add-Change 'Unused background services set to Manual'
+
+    # Widgets / News-and-Interests background webview off (policy, reversible).
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh' 'AllowNewsAndInterests' DWord 0 -Note 'Widgets/News background off'
 
     # ---------------------------------------------------------------------
     #  Clean-profile-only, more aggressive trimming.
@@ -857,6 +919,7 @@ function Invoke-Module-WinutilTweaks {
 
         # Background apps off (global, per-user) + policy
         Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications' 'GlobalUserDisabled' DWord 1 -Note 'Background apps off'
+        Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search' 'BackgroundAppGlobalToggle' DWord 0
         Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsRunInBackground' DWord 2
 
         # Services to Manual (safe, reversible). Clean = Office box, no gaming,
@@ -919,6 +982,7 @@ function Invoke-Module-Performance {
 
     # --- Remove app startup delay ----------------------------------------
     Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'StartupDelayInMSec' DWord 0 -Note 'Startup app delay -> 0'
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'WaitForIdleState'   DWord 0
 
     # Optional: disable mouse acceleration (1:1 input). Applied in both profiles
     # since it never hurts; revertable like everything else.
@@ -1467,9 +1531,21 @@ function Invoke-Module-Privacy {
         '\Microsoft\Windows\Power Efficiency Diagnostics\AnalyzeSystem',
         '\Microsoft\Windows\Maintenance\WinSAT',
         '\Microsoft\Windows\NetTrace\GatherNetworkInfo',
-        '\Microsoft\Windows\PI\Sqm-Tasks'
+        '\Microsoft\Windows\PI\Sqm-Tasks',
+        '\Microsoft\Office\OfficeTelemetryAgentLogOn',
+        '\Microsoft\Office\OfficeTelemetryAgentFallBack'
     )) { Disable-Task $t }
     Add-Change 'Telemetry/feedback scheduled tasks disabled (revertable)'
+
+    # --- Clean-only: online speech models + cellular metadata ------------
+    # Speech models: only safe if voice typing is unused. MNO parser: leave on
+    # for cellular laptops, so desktop/Clean only.
+    if ($Global:Sel01Tweaker.Profile -eq 'Clean') {
+        foreach ($t in @(
+            '\Microsoft\Windows\Speech\SpeechModelDownloadTask',
+            '\Microsoft\Windows\Mobile Broadband Accounts\MNO Metadata Parser'
+        )) { Disable-Task $t }
+    }
 }
 
 
@@ -1510,6 +1586,10 @@ function Invoke-Module-Power {
         Write-Log "Power tweaks failed: $($_.Exception.Message)" 'WARN'
       }
     }
+
+    # --- CPU power throttling off (Desktop/AC only - raises idle power so it
+    #     is correctly gated by the laptop/battery guard above). Reversible. --
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling' 'PowerThrottlingOff' DWord 1 -Note 'CPU power throttling off (Desktop/AC)'
 
     # --- Opt-in: Win11 global timer resolution (fixes micro-stutter) -----
     if ($Global:Sel01Tweaker.TimerFix) {
@@ -1701,6 +1781,55 @@ function Invoke-Module-Gpu {
         Set-Reg 'HKCU:\SOFTWARE\AMD\CN' 'UserExperienceProgram' DWord 0 -Note 'AMD User-Experience telemetry opt-out'
         Set-Reg 'HKCU:\SOFTWARE\AMD\CN' 'OnlineSurvey'          DWord 0
     }
+}
+
+
+# ----- bundled: 15-Features.ps1 -----
+# ============================================================================
+#  Module 15 - Optional Features / Capabilities  (lean + hardening)
+#  Turns off legacy/unused Windows optional features and capabilities via DISM
+#  (Disable-Sel01Feature / Remove-Sel01Capability record what they touch so
+#  -Revert re-enables/re-adds them). DISM changes need a reboot to finalise.
+#  Research-vetted, gaming-safe; never touches anything a game/launcher needs.
+# ============================================================================
+
+function Invoke-Module-Features {
+    Write-Log '=== Module: Optional Features / Capabilities (lean) ===' 'STEP'
+
+    if ($Global:Sel01Tweaker.DryRun) {
+        Write-Log 'DRYRUN: would disable legacy optional features + niche capabilities' 'INFO'
+        return
+    }
+
+    $clean = ($Global:Sel01Tweaker.Profile -eq 'Clean')
+
+    # --- Optional features (both profiles): legacy / unused / hardening ---
+    # SMB1 (wormable, WannaCry vector) + PSv2 (downgrade/AMSI-bypass vector) are
+    # security hardening, not weakening. Disable-Sel01Feature skips absent/already-off.
+    foreach ($f in 'SMB1Protocol','MicrosoftWindowsPowerShellV2Root','Printing-XPSServices-Features',
+                    'FaxServicesClientPackage','WorkFolders-Client','MSRDC-Infrastructure') {
+        Disable-Sel01Feature $f
+    }
+
+    if ($clean) {
+        # Internet (IPP/HTTP) printing - LAN/USB printing unaffected; SMB Direct
+        # (RDMA) - no-op on consumer NICs.
+        foreach ($f in 'Printing-Foundation-InternetPrinting-Client','SmbDirect') {
+            Disable-Sel01Feature $f
+        }
+    }
+
+    # --- Capabilities (FoD): niche, deprecated -----------------------------
+    # Fetch the (slow) capability list once, then remove by prefix.
+    try {
+        $caps = Get-WindowsCapability -Online -ErrorAction Stop
+        Remove-Sel01Capability 'MathRecognizer'    -InstalledCaps $caps
+        Remove-Sel01Capability 'App.StepsRecorder' -InstalledCaps $caps
+    } catch {
+        Write-Log "capability enumeration failed: $($_.Exception.Message)" 'WARN'
+    }
+
+    Add-Change 'Legacy optional features + niche capabilities removed (reboot to finalise)'
 }
 
 
@@ -1927,6 +2056,7 @@ function Invoke-Pipeline {
         @{ Name='FiveM';         Skip=$Global:Sel01Tweaker.SkipFiveM;   Run={ Invoke-Module-FiveM } },
         @{ Name='Network';       Skip=$false;                           Run={ Invoke-Module-Network } },
         @{ Name='Gpu';           Skip=$false;                           Run={ Invoke-Module-Gpu } },
+        @{ Name='Features';      Skip=$false;                           Run={ Invoke-Module-Features } },
         @{ Name='Power';         Skip=$false;                           Run={ Invoke-Module-Power } },
         @{ Name='Cleaner';       Skip=$Global:Sel01Tweaker.SkipClean;   Run={ Invoke-Module-Cleaner } },
         @{ Name='RamCleaner';    Skip=$false;                           Run={ Invoke-Module-RamCleaner -NoTask:$Global:Sel01Tweaker.NoRamTask } }

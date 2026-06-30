@@ -32,6 +32,8 @@ function Save-Sel01TweakerBackup {
         PowerSchemeGuid = $Global:Sel01Tweaker.PowerSchemeGuid   # minted Ultimate-Performance GUID, if any
         RamTask  = $Global:Sel01Tweaker.RamTaskName              # scheduled task name, if created
         TasksDisabled = $Global:Sel01Tweaker.TasksDisabled       # scheduled tasks we disabled (re-enabled on revert)
+        FeaturesDisabled = $Global:Sel01Tweaker.FeaturesDisabled # optional features we disabled (re-enabled on revert)
+        CapabilitiesRemoved = $Global:Sel01Tweaker.CapabilitiesRemoved # capabilities we removed (re-added on revert)
         Registry = $Global:Sel01Tweaker.Backup
     }
     $obj | ConvertTo-Json -Depth 6 | Set-Content -Path $Global:Sel01Tweaker.BackupFile -Encoding UTF8
@@ -97,6 +99,20 @@ function Invoke-Revert {
         foreach ($t in $data.TasksDisabled) {
             try { schtasks /Change /TN $t /Enable 2>$null | Out-Null; Write-Log "re-enabled task $t" 'INFO' }
             catch { Write-Log "task re-enable failed: $t" 'WARN' }
+        }
+    }
+
+    if ($data.FeaturesDisabled) {
+        foreach ($f in $data.FeaturesDisabled) {
+            try { Enable-WindowsOptionalFeature -Online -FeatureName $f -All -NoRestart -ErrorAction Stop | Out-Null; Write-Log "re-enabled feature $f (reboot to finalise)" 'INFO' }
+            catch { Write-Log "feature re-enable failed: $f -> $($_.Exception.Message)" 'WARN' }
+        }
+    }
+
+    if ($data.CapabilitiesRemoved) {
+        foreach ($c in $data.CapabilitiesRemoved) {
+            try { Add-WindowsCapability -Online -Name $c -ErrorAction Stop | Out-Null; Write-Log "re-added capability $c" 'INFO' }
+            catch { Write-Log "capability re-add failed: $c -> $($_.Exception.Message)" 'WARN' }
         }
     }
 

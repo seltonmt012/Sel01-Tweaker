@@ -64,24 +64,28 @@ inlines libs+modules at the `#__SEL01TWEAKER_BUNDLE_INSERT__` marker to produce
   (records disabled tasks for revert), `Invoke-Remote` (download + run upstream),
   `Build-PreferencesMask`, `Broadcast-SettingChange`.
 - `src/lib/Backup.ps1` - restore point, writes the backup JSON (registry
-  snapshots + disabled tasks + minted power-scheme GUID + RAM task), and
-  `Invoke-Revert` reads it back to restore values, re-enable tasks, delete the
-  power scheme, and remove the RAM task.
+  snapshots + disabled tasks + disabled optional-features + removed capabilities +
+  minted power-scheme GUID + RAM task), and `Invoke-Revert` reads it back to restore
+  values, re-enable tasks, re-enable features / re-add capabilities (via
+  `Disable-Sel01Feature` / `Remove-Sel01Capability` records), delete the power
+  scheme, and remove the RAM task.
 - `src/lib/Ui.ps1` - the console overlay (framed live panel, per-module + overall
   progress bars, spinner). `Initialize-Ui` probes VT/ANSI and sets `UI.Fancy`;
   it is `$false` (→ plain `Write-Log` output, unchanged) when output is redirected
   (`irm | iex`, captured) or VT is unavailable, and any render error latches it off
   permanently. Driven zero-touch through `Write-Log` + `Invoke-Pipeline` hooks
   (`Set-UiModule`/`Complete-UiModule`/`Complete-UiPanel`) - modules need no changes.
-- `src/modules/01..14` - the stages, run in order by `Invoke-Pipeline`:
-  01 Debloat + 02 RemoveAI **orchestrate** (download MIT upstream Win11Debloat /
-  RemoveWindowsAI and run them silently); 03 WinutilTweaks, 04 Performance,
-  06 Gaming, 09 Extra, 10 Privacy are **native** reimplementations; 08 FiveM
-  (Gaming only, includes a whitelist cache cleaner), 11 Power (desktop-on-AC
-  only, plus opt-in `-TimerFix`/`-MsiMode`), 12 Cleaner, 07 RamCleaner
+- `src/modules/01..15` - the stages, run in order by `Invoke-Pipeline`:
+  01 Debloat **orchestrates** (downloads MIT upstream Win11Debloat, runs silently);
+  02 RemoveAI, 03 WinutilTweaks, 04 Performance, 06 Gaming, 09 Extra, 10 Privacy are
+  **native** reimplementations (02 was orchestrated but upstream RemoveWindowsAI is
+  chronically broken on Win11 26x00, so it's now native policy disables + Copilot-app
+  removal); 08 FiveM (Gaming only, includes a whitelist cache cleaner), 11 Power
+  (desktop-on-AC only, plus opt-in `-TimerFix`/`-MsiMode`), 12 Cleaner, 07 RamCleaner
   (independent Win32 P/Invoke - WinMemoryCleaner is GPL, so no code is copied);
   13 Network (Gaming-only, Nagle off per NIC), 14 Gpu (NVIDIA + AMD telemetry
-  tasks + opt-out reg flags; vendor-gated, drivers/updates untouched).
+  tasks + opt-out reg flags; vendor-gated, drivers/updates untouched), 15 Features
+  (DISM: disables legacy optional features + niche capabilities; reboot to finalise).
 
 **Profiles** (`-Profile Gaming|Clean`) gate behaviour inside modules via
 `$Global:Sel01Tweaker.Profile`. Gaming keeps Game Mode + HAGS and is gentler;

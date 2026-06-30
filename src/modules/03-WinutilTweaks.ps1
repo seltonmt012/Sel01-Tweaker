@@ -59,10 +59,16 @@ function Invoke-Module-WinutilTweaks {
     # Deliberately NOT touched: Defender/Update/firewall/crypto, Print Spooler
     # (printing), Bluetooth (headsets/controllers), Audio, networking core.
     foreach ($svc in 'Fax','WMPNetworkSvc','WerSvc','MapsBroker','RetailDemo',
-                      'lfsvc','PhoneSvc','diagsvc','WpcMonSvc','RemoteRegistry') {
+                      'lfsvc','PhoneSvc','diagsvc','WpcMonSvc','RemoteRegistry',
+                      'DPS','SensorService') {
         Set-ServiceStart $svc Manual
     }
+    # AllJoyn IoT routing - effectively never used on a gaming PC.
+    Set-ServiceStart 'AJRouter' Disabled
     Add-Change 'Unused background services set to Manual'
+
+    # Widgets / News-and-Interests background webview off (policy, reversible).
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh' 'AllowNewsAndInterests' DWord 0 -Note 'Widgets/News background off'
 
     # ---------------------------------------------------------------------
     #  Clean-profile-only, more aggressive trimming.
@@ -72,6 +78,7 @@ function Invoke-Module-WinutilTweaks {
 
         # Background apps off (global, per-user) + policy
         Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications' 'GlobalUserDisabled' DWord 1 -Note 'Background apps off'
+        Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search' 'BackgroundAppGlobalToggle' DWord 0
         Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsRunInBackground' DWord 2
 
         # Services to Manual (safe, reversible). Clean = Office box, no gaming,

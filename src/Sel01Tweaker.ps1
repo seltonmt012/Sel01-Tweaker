@@ -255,6 +255,7 @@ function Invoke-Pipeline {
         @{ Name='FiveM';         Skip=$Global:Sel01Tweaker.SkipFiveM;   Run={ Invoke-Module-FiveM } },
         @{ Name='Network';       Skip=$false;                           Run={ Invoke-Module-Network } },
         @{ Name='Gpu';           Skip=$false;                           Run={ Invoke-Module-Gpu } },
+        @{ Name='Features';      Skip=$false;                           Run={ Invoke-Module-Features } },
         @{ Name='Power';         Skip=$false;                           Run={ Invoke-Module-Power } },
         @{ Name='Cleaner';       Skip=$Global:Sel01Tweaker.SkipClean;   Run={ Invoke-Module-Cleaner } },
         @{ Name='RamCleaner';    Skip=$false;                           Run={ Invoke-Module-RamCleaner -NoTask:$Global:Sel01Tweaker.NoRamTask } }

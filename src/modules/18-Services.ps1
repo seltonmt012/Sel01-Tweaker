@@ -13,9 +13,12 @@ function Invoke-Module-Services {
     $clean = ($Global:Sel01Tweaker.Profile -eq 'Clean')
 
     # --- Both profiles: diagnostics / legacy-net / niche, all demand-startable
+    # InventorySvc = inventory/compat telemetry (runs at idle on a fresh box);
+    # BcastDVRUserService = GameDVR broadcast (GameDVR is already off everywhere).
     foreach ($svc in 'WdiServiceHost','WdiSystemHost','lltdsvc','Spectrum',
                       'perceptionsimulation','lmhosts','autotimesvc',
-                      'diagnosticshub.standardcollector.service') {
+                      'diagnosticshub.standardcollector.service',
+                      'InventorySvc','BcastDVRUserService') {
         Set-ServiceStart $svc Manual
     }
     # Cellular modem service: desktops only (laptops/tablets may have WWAN hw).
@@ -37,7 +40,8 @@ function Invoke-Module-Services {
                           'fhsvc','CDPSvc','p2psvc','p2pimsvc','PNRPsvc','PNRPAutoReg',
                           'RasAuto','SstpSvc','wercplsupport','Wecsvc','WEPHOSTSVC','SNMPTRAP',
                           'dot3svc','NaturalAuthentication','CertPropSvc','Netlogon',
-                          'fdPHost','FDResPub','SSDPSRV','upnphost','ShellHWDetection') {
+                          'fdPHost','FDResPub','SSDPSRV','upnphost','ShellHWDetection',
+                          'iphlpsvc') {
             Set-ServiceStart $svc Manual
         }
         Add-Change 'Clean: deeper unused-service trim -> Manual'

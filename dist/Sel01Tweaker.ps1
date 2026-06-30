@@ -51,7 +51,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.8.0'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.8.1'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -2129,9 +2129,12 @@ function Invoke-Module-Services {
     $clean = ($Global:Sel01Tweaker.Profile -eq 'Clean')
 
     # --- Both profiles: diagnostics / legacy-net / niche, all demand-startable
+    # InventorySvc = inventory/compat telemetry (runs at idle on a fresh box);
+    # BcastDVRUserService = GameDVR broadcast (GameDVR is already off everywhere).
     foreach ($svc in 'WdiServiceHost','WdiSystemHost','lltdsvc','Spectrum',
                       'perceptionsimulation','lmhosts','autotimesvc',
-                      'diagnosticshub.standardcollector.service') {
+                      'diagnosticshub.standardcollector.service',
+                      'InventorySvc','BcastDVRUserService') {
         Set-ServiceStart $svc Manual
     }
     # Cellular modem service: desktops only (laptops/tablets may have WWAN hw).
@@ -2153,7 +2156,8 @@ function Invoke-Module-Services {
                           'fhsvc','CDPSvc','p2psvc','p2pimsvc','PNRPsvc','PNRPAutoReg',
                           'RasAuto','SstpSvc','wercplsupport','Wecsvc','WEPHOSTSVC','SNMPTRAP',
                           'dot3svc','NaturalAuthentication','CertPropSvc','Netlogon',
-                          'fdPHost','FDResPub','SSDPSRV','upnphost','ShellHWDetection') {
+                          'fdPHost','FDResPub','SSDPSRV','upnphost','ShellHWDetection',
+                          'iphlpsvc') {
             Set-ServiceStart $svc Manual
         }
         Add-Change 'Clean: deeper unused-service trim -> Manual'

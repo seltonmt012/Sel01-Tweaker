@@ -39,6 +39,12 @@ Note: the Hyper-V hypervisor only loads at boot, so enabling Hyper-V or
 `bcdedit /set hypervisorlaunchtype auto` needs a host reboot before VMs can start;
 Gen2 + a Windows ISO shows a "Press any key to boot from CD" prompt that times out
 headless - send keystrokes via the Msvm_Keyboard WMI `TypeKey` during the first boot.
+**Testing gotcha:** running the tool via a detached **SYSTEM** scheduled task (the easy
+way to drive it over PowerShell Direct) writes every **HKCU** tweak (visual effects,
+mouse accel, menu delay, per-app FiveM, ...) into **SYSTEM's** hive, so the logged-in
+user's desktop shows none of them - even though HKLM/service/task tweaks all apply. To
+verify per-user tweaks, run as the actual user (an *interactive* `-LogonType Interactive`
+task) - a real user run self-elevates as themselves, so HKCU is correct there.
 
 DryRun-smoke one module without elevation (writes nothing):
 ```powershell
@@ -75,7 +81,7 @@ inlines libs+modules at the `#__SEL01TWEAKER_BUNDLE_INSERT__` marker to produce
   (`irm | iex`, captured) or VT is unavailable, and any render error latches it off
   permanently. Driven zero-touch through `Write-Log` + `Invoke-Pipeline` hooks
   (`Set-UiModule`/`Complete-UiModule`/`Complete-UiPanel`) - modules need no changes.
-- `src/modules/01..17` - the stages, run in order by `Invoke-Pipeline`:
+- `src/modules/01..18` - the stages, run in order by `Invoke-Pipeline`:
   01 Debloat **orchestrates** (downloads MIT upstream Win11Debloat, runs silently);
   16 AppxBloat is a **native** app-removal backstop (removes ~20 bloat Store apps by name,
   download-independent; appx removal is NOT reverted - like Debloat); 17 Win10 is a

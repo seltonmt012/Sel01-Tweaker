@@ -75,7 +75,7 @@ inlines libs+modules at the `#__SEL01TWEAKER_BUNDLE_INSERT__` marker to produce
   (`irm | iex`, captured) or VT is unavailable, and any render error latches it off
   permanently. Driven zero-touch through `Write-Log` + `Invoke-Pipeline` hooks
   (`Set-UiModule`/`Complete-UiModule`/`Complete-UiPanel`) - modules need no changes.
-- `src/modules/01..16` - the stages, run in order by `Invoke-Pipeline`:
+- `src/modules/01..17` - the stages, run in order by `Invoke-Pipeline`:
   01 Debloat **orchestrates** (downloads MIT upstream Win11Debloat, runs silently);
   16 AppxBloat is a **native** app-removal backstop (removes ~20 bloat Store apps by name,
   download-independent; appx removal is NOT reverted - like Debloat); 17 Win10 is a
@@ -119,14 +119,36 @@ cleanly when stdin is non-interactive so the menu can't spin.
   here-string terminators). **`Add-Type -MemberDefinition` can't contain `using`** -
   pass `-UsingNamespace` (not `System`/`System.Runtime.InteropServices`, which are
   defaults). See `07-RamCleaner.ps1`.
-- **`Invoke-Remote` splats a hashtable by name**, not a flat `-Flag` array, so
-  switches bind and array params (RemoveWindowsAI `-Options`) pass element-by-element.
-  The param names/`-Options` values must match the **live** upstream scripts (they get
-  renamed - e.g. Win11Debloat `DisableChat` → `HideChat`); a wrong name aborts the
-  whole orchestrated run. Verify by parsing the downloaded script's `param()` block.
+- **`Invoke-Remote` splats a hashtable by name** (only module 01 Debloat orchestrates
+  now; RemoveAI is native). Switches bind and array params pass element-by-element. The
+  param names must match the **live** upstream Win11Debloat (params get renamed - e.g.
+  `DisableChat` → `HideChat`); a wrong name aborts the whole orchestrated run. Verify by
+  parsing the downloaded script's `param()` block.
 - **The overlay must always degrade.** Never assume `UI.Fancy`; all panel rendering
   stays in `try/catch` that latches `Fancy=$false`, and `Write-Log` keeps its plain
-  path so redirected/`iex` runs and legacy consoles look exactly as before.
+  path so redirected/`iex` runs and legacy consoles look exactly as before. External
+  tools (Win11Debloat/winget/DISM) corrupt the framed box, so wrap them in
+  `Suspend-Panel`/`Resume-Panel`, set `$ProgressPreference='SilentlyContinue'`, and
+  redirect their output to a **separate** `-extern.txt` file (NOT the main log — a
+  child process can keep that handle open and lock `Write-Log` out, hence the
+  lock-resilient `Add-Content` there).
+- **`Set-Reg`/`Set-ServiceStart` must never throw raw red.** `Set-Reg` uses
+  `-ErrorAction Stop` so a non-terminating `PermissionDenied` on an ACL-protected key
+  (e.g. service `DPS`) is caught and logged as a WARN (and its snapshot dropped). Don't
+  add protected keys to the service lists. `Set-ServiceStart` also has a hard
+  **deny-list** (Defender/Update/RPC/audio/network/notification core) and stops the
+  service immediately after retyping it (so the change takes effect without a reboot).
+- **App (appx) removal is NOT reverted** (modules 01 Debloat, 02 RemoveAI Copilot app,
+  16 AppxBloat) — like Win11Debloat. Optional features/capabilities (15) ARE reverted via
+  `Disable-Sel01Feature`/`Remove-Sel01Capability` records; DISM changes need a reboot.
+- **Any reboot-requiring tweak must set `$Global:Sel01Tweaker.RebootNeeded = $true`** so
+  the end-of-run interactive restart prompt (now/later) fires. That prompt only asks when
+  stdin is interactive — never hang the `-Profile` one-liner. `Test-Online` probes TCP 443,
+  not ICMP (ping is often blocked while HTTPS works).
+- **FiveM module (08) is gated on `Test-FiveMInstalled`** (folder exists; not "running"),
+  and targets the modern `FiveM_b<build>_GTAProcess.exe` (the legacy `FiveM_GTAProcess.exe`
+  no longer exists). HKCU writes done while running as SYSTEM (e.g. a test scheduled task)
+  land in SYSTEM's hive — to verify per-user tweaks, run in the actual user's context.
 - After editing `src/`, **rebuild** (`.\build.ps1`) and re-run `run-checks.ps1`.
   Never hand-edit `dist/Sel01Tweaker.ps1` - it's generated. Runtime logs/backups
   live in `%ProgramData%\Sel01Tweaker\`.

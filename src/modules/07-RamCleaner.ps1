@@ -92,8 +92,14 @@ function Invoke-Module-RamCleaner {
         return
     }
 
-    # One-shot clean now.
-    Invoke-RamClean
+    # One-shot clean now - but skip it if a reboot is pending (a reboot zeroes
+    # live memory anyway, so the immediate purge would be wasted). The hourly +
+    # boot-triggered task does the real, persistent cleaning.
+    if ($Global:Sel01Tweaker.RebootNeeded) {
+        Write-Log 'Sofort-RAM-Clean uebersprungen (Neustart steht an; Boot-Task uebernimmt)' 'INFO'
+    } else {
+        Invoke-RamClean
+    }
 
     if ($NoTask) { Write-Log 'Skipping periodic task (-NoRamTask)' 'INFO'; return }
 

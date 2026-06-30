@@ -51,7 +51,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.5.0'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.6.0'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -131,6 +131,8 @@ function Write-Log {
         Add-Content -Path $Global:Sel01Tweaker.LogFile -Value $line -Encoding UTF8
     }
     $ui = $Global:Sel01Tweaker.UI
+    # Panel suspended (external tool running): file log only, no screen output.
+    if ($ui -and $ui.Fancy -and $ui.Suspended) { return }
     # Overlay active AND inside a module: drive the panel, keep the screen clean.
     if ($ui -and $ui.Fancy -and $ui.CurrentIdx -gt 0) {
         $ui.ModuleStep++
@@ -168,8 +170,15 @@ function Test-Admin {
 #  Network guard (for orchestrated downloads)
 # ---------------------------------------------------------------------------
 function Test-Online {
-    try { return (Test-Connection -ComputerName 'github.com' -Count 1 -Quiet -ErrorAction Stop) }
-    catch { return $false }
+    # TCP 443, not ICMP: many networks block ping while HTTPS works, which would
+    # otherwise make Invoke-Remote falsely skip the Debloat/AI downloads.
+    try {
+        $c = New-Object System.Net.Sockets.TcpClient
+        $ok = $c.ConnectAsync('github.com', 443).Wait(3000)
+        $r = $ok -and $c.Connected
+        $c.Close()
+        return $r
+    } catch { return $false }
 }
 
 # ---------------------------------------------------------------------------
@@ -243,17 +252,19 @@ function Set-Reg {
         return
     }
 
-    # Record snapshot once per (Path,Name) so first-seen original wins.
+    # Record snapshot once per (Path,Name) so first-seen original wins. Keep a
+    # handle to the exact object added so the catch can drop it if the write fails.
+    $snap = $null
     $already = $Global:Sel01Tweaker.Backup | Where-Object { $_.Path -eq $Path -and $_.Name -eq $Name }
     if (-not $already) {
-        $snap = [ordered]@{
+        $snap = [pscustomobject][ordered]@{
             Path    = $Path
             Name    = $Name
             Existed = $prior.Exists
             OldType = if ($prior.Kind) { "$($prior.Kind)" } else { $null }
             OldValue= if ($prior.Exists) { $prior.Value } else { $null }
         }
-        $Global:Sel01Tweaker.Backup.Add([pscustomobject]$snap) | Out-Null
+        $Global:Sel01Tweaker.Backup.Add($snap) | Out-Null
     }
 
     $display = if ($Type -eq 'Binary') { ($Value | ForEach-Object { '{0:X2}' -f $_ }) -join ' ' } else { "$Value" }
@@ -265,12 +276,18 @@ function Set-Reg {
     }
 
     try {
-        if (-not (Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
-        New-ItemProperty -Path $Path -Name $Name -PropertyType $Type -Value $Value -Force | Out-Null
+        # -ErrorAction Stop so a non-terminating PermissionDenied (protected keys
+        # like some service hives) is caught here and logged as a clean WARN
+        # instead of escaping as raw red console spam.
+        if (-not (Test-Path $Path)) { New-Item -Path $Path -Force -ErrorAction Stop | Out-Null }
+        New-ItemProperty -Path $Path -Name $Name -PropertyType $Type -Value $Value -Force -ErrorAction Stop | Out-Null
         Write-Log "reg: $label" 'INFO'
         if ($Note) { Add-Change $Note }
     } catch {
-        Write-Log "reg FAILED: $label -> $($_.Exception.Message)" 'WARN'
+        # Drop the snapshot we recorded above - the write didn't happen, so revert
+        # must not try to "restore" a value we never changed.
+        if ($snap) { [void]$Global:Sel01Tweaker.Backup.Remove($snap) }
+        Write-Log "reg uebersprungen ($Path\$Name): $($_.Exception.Message)" 'WARN'
     }
 }
 
@@ -306,6 +323,16 @@ function Set-ServiceStart {
         [string]$StartupType,
         [string]$Note
     )
+    # Hard deny-list backstop: never touch security/update/RPC/audio/network/
+    # notification core, no matter what a call site asks for.
+    $deny = @('WinDefend','SecurityHealthService','wscsvc','Sense','wuauserv','UsoSvc',
+              'WaaSMedicSvc','mpssvc','BFE','CryptSvc','EventLog','Winmgmt','RpcSs',
+              'RpcEptMapper','DcomLaunch','Audiosrv','AudioEndpointBuilder','Dnscache',
+              'NlaSvc','nsi','Dhcp','WpnService','LanmanWorkstation','LanmanServer')
+    if ($deny -contains $Name) {
+        Write-Log "service geschuetzt, NICHT angefasst: $Name" 'INFO'
+        return
+    }
     # Map to the registry Start DWORD so snapshot/revert flows through Set-Reg.
     $map = @{ Boot=0; System=1; Automatic=2; Manual=3; Disabled=4 }
     $path = "HKLM:\SYSTEM\CurrentControlSet\Services\$Name"
@@ -314,6 +341,12 @@ function Set-ServiceStart {
         return
     }
     Set-Reg -Path $path -Name 'Start' -Type DWord -Value $map[$StartupType] -Note $Note
+    # Stop it now (best-effort) so the change takes effect without waiting for the
+    # reboot - lowers the live process/service count immediately. Snapshot already
+    # recorded the prior Start type, so -Revert restores it regardless.
+    if (-not $Global:Sel01Tweaker.DryRun -and ($StartupType -eq 'Disabled' -or $StartupType -eq 'Manual')) {
+        try { Stop-Service -Name $Name -Force -ErrorAction Stop } catch {}
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -344,6 +377,7 @@ function Disable-Task {
 # ---------------------------------------------------------------------------
 function Disable-Sel01Feature {
     param([Parameter(Mandatory)][string]$Name)
+    $ProgressPreference = 'SilentlyContinue'
     if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN disable feature: $Name" 'INFO'; return }
     try {
         $f = Get-WindowsOptionalFeature -Online -FeatureName $Name -ErrorAction Stop
@@ -361,6 +395,7 @@ function Remove-Sel01Capability {
         call is slow, so callers can fetch once and pass it in). $Name is a prefix
         before the ~~~~ version suffix.  #>
     param([Parameter(Mandatory)][string]$Name, $InstalledCaps)
+    $ProgressPreference = 'SilentlyContinue'
     if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN remove capability: $Name" 'INFO'; return }
     try {
         if (-not $InstalledCaps) { $InstalledCaps = Get-WindowsCapability -Online -ErrorAction Stop }
@@ -369,6 +404,7 @@ function Remove-Sel01Capability {
         foreach ($c in $hits) {
             Remove-WindowsCapability -Online -Name $c.Name -ErrorAction Stop | Out-Null
             if (-not ($Global:Sel01Tweaker.CapabilitiesRemoved -contains $c.Name)) { $Global:Sel01Tweaker.CapabilitiesRemoved.Add($c.Name) | Out-Null }
+            $Global:Sel01Tweaker.RebootNeeded = $true
             Write-Log "capability removed: $($c.Name)" 'INFO'
         }
     } catch { Write-Log "capability remove failed: $Name -> $($_.Exception.Message)" 'WARN' }
@@ -453,15 +489,23 @@ function Invoke-Remote {
         Write-Log "Offline - skipping $Name (needs download)" 'WARN'
         return
     }
+    $ProgressPreference = 'SilentlyContinue'
     try {
         Write-Log "Downloading $Name ..." 'INFO'
         $code = Invoke-RestMethod -Uri $Url -UseBasicParsing -ErrorAction Stop
         $sb = [scriptblock]::Create($code)
-        Write-Log "Running $Name $shown" 'INFO'
-        & $sb @Params
+        Write-Log "Running $Name $shown (Ausgabe -> Log)" 'INFO'
+        # The upstream tool prints lots of Write-Host / winget output that would
+        # paint over the overlay - park the panel and funnel every stream to the
+        # run log, then redraw a fresh panel.
+        Suspend-Panel
+        $log = $Global:Sel01Tweaker.LogFile
+        if ($log) { & $sb @Params *>> $log } else { & $sb @Params *> $null }
+        Resume-Panel
         Write-Log "$Name finished" 'OK'
         Add-Change "$Name applied ($shown)"
     } catch {
+        Resume-Panel
         Write-Log "$Name failed: $($_.Exception.Message)" 'WARN'
     }
 }
@@ -533,10 +577,14 @@ function Invoke-Revert {
         try {
             if ($entry.Existed) {
                 $kind = if ($entry.OldType) { $entry.OldType } else { 'String' }
+                if ($kind -notin 'String','ExpandString','Binary','DWord','MultiString','QWord') {
+                    Write-Log "revert skip (ungueltiger Typ '$kind'): $($entry.Path)\$($entry.Name)" 'WARN'
+                    continue
+                }
                 $val  = $entry.OldValue
                 if ($kind -eq 'Binary' -and $val) { $val = [byte[]]($val | ForEach-Object { [byte]$_ }) }
-                if (-not (Test-Path $entry.Path)) { New-Item -Path $entry.Path -Force | Out-Null }
-                New-ItemProperty -Path $entry.Path -Name $entry.Name -PropertyType $kind -Value $val -Force | Out-Null
+                if (-not (Test-Path $entry.Path)) { New-Item -Path $entry.Path -Force -ErrorAction Stop | Out-Null }
+                New-ItemProperty -Path $entry.Path -Name $entry.Name -PropertyType $kind -Value $val -Force -ErrorAction Stop | Out-Null
                 Write-Log "restored $($entry.Path)\$($entry.Name)" 'INFO'
             } else {
                 # Value did not exist before -> remove what we added.
@@ -604,7 +652,7 @@ function Invoke-Revert {
 # Per-module rough sub-step estimates (drives the per-module bar %). Approximate
 # is fine; the bar clamps to 99% until the module returns, then snaps to 100%.
 $Global:Sel01TweakerUiEst = @{
-    Debloat=6; RemoveAI=4; WinutilTweaks=20; Extra=15; Privacy=20; Performance=17;
+    Debloat=6; RemoveAI=8; AppxBloat=24; WinutilTweaks=24; Extra=15; Privacy=24; Performance=18;
     PowerPlan=4; Gaming=15; Network=6; Gpu=6; Features=10; FiveM=10; Power=8; Cleaner=8; RamCleaner=4
 }
 
@@ -623,7 +671,7 @@ function Initialize-Ui {
     if (-not $Global:Sel01Tweaker.UI) {
         $Global:Sel01Tweaker.UI = @{
             Fancy=$false; AnchorRow=$null; Total=14; Done=0; Current=''
-            CurrentIdx=0; ModuleStep=0; ModuleEst=1; Spin=0; LastMsg=''
+            CurrentIdx=0; ModuleStep=0; ModuleEst=1; Spin=0; LastMsg=''; Suspended=$false
         }
     }
     $ui = $Global:Sel01Tweaker.UI
@@ -686,11 +734,30 @@ function Complete-UiPanel {
     Write-Host ''
 }
 
+function Suspend-Panel {
+    <#  Park the cursor below the panel and stop redrawing it, so an external tool
+        (Win11Debloat / winget / DISM) can scroll its own output without corrupting
+        the framed box. Resume-Panel re-anchors a fresh panel afterwards.  #>
+    $ui = $Global:Sel01Tweaker.UI
+    if (-not ($ui -and $ui.Fancy)) { return }
+    try { if ($null -ne $ui.AnchorRow) { [Console]::SetCursorPosition(0, [math]::Min($ui.AnchorRow + 9, [Console]::BufferHeight - 1)) } } catch {}
+    $ui.Suspended = $true
+    Write-Host ''
+}
+
+function Resume-Panel {
+    $ui = $Global:Sel01Tweaker.UI
+    if (-not ($ui -and $ui.Fancy)) { return }
+    $ui.Suspended = $false
+    $ui.AnchorRow = $null   # re-anchor a fresh panel where the cursor now is
+    Show-Panel
+}
+
 function Show-Panel {
     <#  Redraws the framed panel in place at AnchorRow. Any failure latches
         Fancy=$false so the rest of the run degrades to plain logging.  #>
     $ui = $Global:Sel01Tweaker.UI
-    if (-not ($ui -and $ui.Fancy)) { return }
+    if (-not ($ui -and $ui.Fancy) -or $ui.Suspended) { return }
     try {
         $w = [Console]::WindowWidth - 2
         if ($w -gt 58) { $w = 58 } elseif ($w -lt 40) { $w = 40 }
@@ -899,9 +966,13 @@ function Invoke-Module-WinutilTweaks {
     # cost, nothing breaks, fully reversible. Skipped automatically if absent.
     # Deliberately NOT touched: Defender/Update/firewall/crypto, Print Spooler
     # (printing), Bluetooth (headsets/controllers), Audio, networking core.
+    # NOTE: DPS (Diagnostic Policy Service) intentionally NOT here - its service
+    # key is ACL-protected (TrustedInstaller), so writing Start fails with
+    # PermissionDenied. Not worth an ownership takeover for a medium-risk tweak.
     foreach ($svc in 'Fax','WMPNetworkSvc','WerSvc','MapsBroker','RetailDemo',
                       'lfsvc','PhoneSvc','diagsvc','WpcMonSvc','RemoteRegistry',
-                      'DPS','SensorService') {
+                      'SensorService','DusmSvc','TabletInputService','wisvc',
+                      'PushToInstall','embeddedmode') {
         Set-ServiceStart $svc Manual
     }
     # AllJoyn IoT routing - effectively never used on a gaming PC.
@@ -910,6 +981,11 @@ function Invoke-Module-WinutilTweaks {
 
     # Widgets / News-and-Interests background webview off (policy, reversible).
     Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh' 'AllowNewsAndInterests' DWord 0 -Note 'Widgets/News background off'
+
+    # Bing / web results in Start search off (backstop for offline runs where the
+    # Win11Debloat -DisableBing download is skipped).
+    Set-Reg 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'DisableSearchBoxSuggestions' DWord 1 -Note 'Bing/web in Start search off'
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search' 'BingSearchEnabled' DWord 0
 
     # ---------------------------------------------------------------------
     #  Clean-profile-only, more aggressive trimming.
@@ -926,8 +1002,14 @@ function Invoke-Module-WinutilTweaks {
         # so Xbox stack goes Manual too (Gaming profile KEEPS it for Game Bar/HAGS).
         foreach ($svc in 'SysMain','WSearch','PcaSvc',
                           'XblAuthManager','XblGameSave','XboxGipSvc','XboxNetApiSvc',
-                          'SCardSvr','ScDeviceEnum','WbioSrvc','SEMgrSvc','stisvc') {
+                          'SCardSvr','ScDeviceEnum','WbioSrvc','SEMgrSvc','stisvc',
+                          'icssvc','TrkWks','SharedRealitySvc',
+                          'OneSyncSvc','CDPUserSvc','cbdhsvc','PimIndexMaintenanceSvc',
+                          'MessagingService','AarSvc') {
             Set-ServiceStart $svc Manual
+        }
+        foreach ($svc in 'tzautoupdate','WalletService','AssignedAccessManagerSvc') {
+            Set-ServiceStart $svc Disabled
         }
 
         # (Telemetry scheduled tasks are handled centrally + revertably in module 10.)
@@ -998,6 +1080,10 @@ function Invoke-Module-Performance {
 
     # --- No accidental Sticky Keys prompt (5x Shift) ---------------------
     Set-Reg 'HKCU:\Control Panel\Accessibility\StickyKeys' 'Flags' String '506' -Note 'Sticky-Keys 5x-Shift prompt off'
+
+    # Win32PrioritySeparation + NtfsDisableLastAccessUpdate only take effect after
+    # a reboot -> make sure the end-of-run reboot prompt fires.
+    $Global:Sel01Tweaker.RebootNeeded = $true
 }
 
 
@@ -1187,8 +1273,14 @@ function Invoke-Module-RamCleaner {
         return
     }
 
-    # One-shot clean now.
-    Invoke-RamClean
+    # One-shot clean now - but skip it if a reboot is pending (a reboot zeroes
+    # live memory anyway, so the immediate purge would be wasted). The hourly +
+    # boot-triggered task does the real, persistent cleaning.
+    if ($Global:Sel01Tweaker.RebootNeeded) {
+        Write-Log 'Sofort-RAM-Clean uebersprungen (Neustart steht an; Boot-Task uebernimmt)' 'INFO'
+    } else {
+        Invoke-RamClean
+    }
 
     if ($NoTask) { Write-Log 'Skipping periodic task (-NoRamTask)' 'INFO'; return }
 
@@ -1543,7 +1635,9 @@ function Invoke-Module-Privacy {
     if ($Global:Sel01Tweaker.Profile -eq 'Clean') {
         foreach ($t in @(
             '\Microsoft\Windows\Speech\SpeechModelDownloadTask',
-            '\Microsoft\Windows\Mobile Broadband Accounts\MNO Metadata Parser'
+            '\Microsoft\Windows\Mobile Broadband Accounts\MNO Metadata Parser',
+            '\Microsoft\Windows\Shell\FamilySafetyMonitor',
+            '\Microsoft\Windows\Shell\FamilySafetyRefreshTask'
         )) { Disable-Task $t }
     }
 }
@@ -1590,6 +1684,7 @@ function Invoke-Module-Power {
     # --- CPU power throttling off (Desktop/AC only - raises idle power so it
     #     is correctly gated by the laptop/battery guard above). Reversible. --
     Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling' 'PowerThrottlingOff' DWord 1 -Note 'CPU power throttling off (Desktop/AC)'
+    $Global:Sel01Tweaker.RebootNeeded = $true
 
     # --- Opt-in: Win11 global timer resolution (fixes micro-stutter) -----
     if ($Global:Sel01Tweaker.TimerFix) {
@@ -1833,6 +1928,59 @@ function Invoke-Module-Features {
 }
 
 
+# ----- bundled: 16-AppxBloat.ps1 -----
+# ============================================================================
+#  Module 16 - App-Bloat (NATIVE appx removal, download-independent)
+#  Removes pre-installed Store apps that auto-start / sync / fetch in the
+#  background (Teams, new Outlook, Phone Link, Cortana, Bing apps, ...) by name -
+#  works even when the Win11Debloat download was skipped (offline). Appx removal
+#  is debloat-style and NOT restored by -Revert (reinstall from the Store).
+#  GAMING keeps Game Bar + Gaming App; those go only in the Clean profile.
+# ============================================================================
+
+function Remove-Sel01Appx {
+    param([Parameter(Mandatory)][string]$Name)
+    if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN appx remove: $Name" 'INFO'; return }
+    try {
+        $p = Get-AppxPackage -AllUsers -Name $Name -ErrorAction SilentlyContinue
+        if ($p) {
+            $p | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+            Write-Log "appx removed: $Name" 'INFO'
+            Add-Change "App entfernt: $Name"
+        }
+        Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -eq $Name } |
+            ForEach-Object { Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -AllUsers -ErrorAction SilentlyContinue | Out-Null }
+    } catch { Write-Log "appx remove failed: $Name -> $($_.Exception.Message)" 'WARN' }
+}
+
+function Invoke-Module-AppxBloat {
+    Write-Log '=== Module: App-Bloat entfernen (nativ) ===' 'STEP'
+
+    # Both profiles: background processes / auto-start first.
+    $both = @(
+        'Microsoft.YourPhone','Microsoft.OutlookForWindows','MSTeams','MicrosoftTeams',
+        'Microsoft.549981C3F5F4','Microsoft.Windows.DevHome','Microsoft.PowerAutomateDesktop',
+        'Microsoft.BingSearch','Microsoft.BingNews','Microsoft.BingWeather','Microsoft.MicrosoftOfficeHub',
+        'Microsoft.People','Microsoft.Todos','Microsoft.GetHelp','Microsoft.WindowsFeedbackHub',
+        'Microsoft.WindowsMaps','MicrosoftCorporationII.QuickAssist','MicrosoftCorporationII.MicrosoftFamily',
+        'Clipchamp.Clipchamp','Microsoft.MicrosoftSolitaireCollection','Microsoft.Microsoft3DViewer',
+        'Microsoft.MixedReality.Portal','Microsoft.SkypeApp','Microsoft.XboxSpeechToTextOverlay'
+    )
+    foreach ($a in $both) { Remove-Sel01Appx $a }
+
+    # Clean only (Office box, no gaming) - includes Widgets host + media + mail.
+    # GAMING KEEPS: Microsoft.GamingApp, Microsoft.XboxGamingOverlay (Game Bar).
+    if ($Global:Sel01Tweaker.Profile -eq 'Clean') {
+        foreach ($a in 'MicrosoftWindows.Client.WebExperience','Microsoft.ZuneMusic','Microsoft.ZuneVideo',
+                        'Microsoft.WindowsCommunicationsApps','Microsoft.MicrosoftStickyNotes',
+                        'Microsoft.GamingApp','Microsoft.XboxGamingOverlay') {
+            Remove-Sel01Appx $a
+        }
+    }
+}
+
+
 
 # ---------------------------------------------------------------------------
 #  Load parts. When bundled into dist\Sel01Tweaker.ps1 the functions already
@@ -2031,6 +2179,10 @@ function Initialize-Run {
 function Invoke-Pipeline {
     param([string]$Profile,[bool]$DryRun)
 
+    # Kill cmdlet progress bars (DISM, Invoke-WebRequest, etc.) - they overwrite
+    # the overlay panel and corrupt the console layout.
+    $ProgressPreference = 'SilentlyContinue'
+
     Initialize-Run
     $Global:Sel01Tweaker.Profile = $Profile
     $Global:Sel01Tweaker.DryRun  = $DryRun
@@ -2047,6 +2199,7 @@ function Invoke-Pipeline {
     $steps = @(
         @{ Name='Debloat';       Skip=$Global:Sel01Tweaker.SkipDebloat; Run={ Invoke-Module-Debloat } },
         @{ Name='RemoveAI';      Skip=$Global:Sel01Tweaker.SkipAI;      Run={ Invoke-Module-RemoveAI } },
+        @{ Name='AppxBloat';     Skip=$Global:Sel01Tweaker.SkipDebloat; Run={ Invoke-Module-AppxBloat } },
         @{ Name='WinutilTweaks'; Skip=$false;                           Run={ Invoke-Module-WinutilTweaks } },
         @{ Name='Extra';         Skip=$false;                           Run={ Invoke-Module-Extra } },
         @{ Name='Privacy';       Skip=$false;                           Run={ Invoke-Module-Privacy } },
@@ -2082,10 +2235,32 @@ function Invoke-Pipeline {
     Write-Log ("Geaendert: {0}  |  schon korrekt (uebersprungen): {1}" -f $Global:Sel01Tweaker.Changes.Count, $Global:Sel01Tweaker.SkippedCount) 'STEP'
     Write-Log "Backup: $($Global:Sel01Tweaker.BackupFile)" 'INFO'
     Write-Log "Log:    $($Global:Sel01Tweaker.LogFile)" 'INFO'
-    if ($Global:Sel01Tweaker.RebootNeeded) { Write-Log 'NEUSTART empfohlen (HAGS / Power-Plan).' 'WARN' }
     Write-Log 'Rueckgaengig: Menue-Option oder  -Revert' 'INFO'
     Write-Log 'Done.' 'OK'
     Show-Tips
+
+    # --- Reboot handling: some tweaks (HAGS, GPU-TdrDelay, DISM-Features,
+    #     NTFS/PrioritySeparation/PowerThrottling, TimerFix/MSI) only take full
+    #     effect after a restart. Ask interactively; never auto-reboot or hang a
+    #     non-interactive (one-liner) run. -DryRun never reboots.
+    if ($Global:Sel01Tweaker.RebootNeeded -and -not $Global:Sel01Tweaker.DryRun) {
+        Write-Host ''
+        Write-Log 'NEUSTART noetig, damit alles greift (HAGS / Kernel / DISM-Features).' 'WARN'
+        $interactive = $true
+        try { if ([Console]::IsInputRedirected) { $interactive = $false } } catch { $interactive = $false }
+        if ($interactive) {
+            $ans = Read-Host '   Jetzt neu starten?  [J] = jetzt   [Enter] = spaeter'
+            if ($ans -match '^[jJyY]') {
+                Write-Log 'Starte in 5 Sekunden neu... (Strg+C zum Abbrechen)' 'STEP'
+                Start-Sleep -Seconds 5
+                Restart-Computer -Force
+            } else {
+                Write-Log 'Ok - bitte spaeter selbst neu starten.' 'INFO'
+            }
+        } else {
+            Write-Log 'Nicht-interaktiv: bitte manuell neu starten.' 'INFO'
+        }
+    }
 }
 
 # ===========================================================================

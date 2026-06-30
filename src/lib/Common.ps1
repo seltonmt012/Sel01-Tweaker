@@ -11,7 +11,7 @@
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.5.0'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.6.0'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -91,6 +91,8 @@ function Write-Log {
         Add-Content -Path $Global:Sel01Tweaker.LogFile -Value $line -Encoding UTF8
     }
     $ui = $Global:Sel01Tweaker.UI
+    # Panel suspended (external tool running): file log only, no screen output.
+    if ($ui -and $ui.Fancy -and $ui.Suspended) { return }
     # Overlay active AND inside a module: drive the panel, keep the screen clean.
     if ($ui -and $ui.Fancy -and $ui.CurrentIdx -gt 0) {
         $ui.ModuleStep++
@@ -128,8 +130,15 @@ function Test-Admin {
 #  Network guard (for orchestrated downloads)
 # ---------------------------------------------------------------------------
 function Test-Online {
-    try { return (Test-Connection -ComputerName 'github.com' -Count 1 -Quiet -ErrorAction Stop) }
-    catch { return $false }
+    # TCP 443, not ICMP: many networks block ping while HTTPS works, which would
+    # otherwise make Invoke-Remote falsely skip the Debloat/AI downloads.
+    try {
+        $c = New-Object System.Net.Sockets.TcpClient
+        $ok = $c.ConnectAsync('github.com', 443).Wait(3000)
+        $r = $ok -and $c.Connected
+        $c.Close()
+        return $r
+    } catch { return $false }
 }
 
 # ---------------------------------------------------------------------------
@@ -203,17 +212,19 @@ function Set-Reg {
         return
     }
 
-    # Record snapshot once per (Path,Name) so first-seen original wins.
+    # Record snapshot once per (Path,Name) so first-seen original wins. Keep a
+    # handle to the exact object added so the catch can drop it if the write fails.
+    $snap = $null
     $already = $Global:Sel01Tweaker.Backup | Where-Object { $_.Path -eq $Path -and $_.Name -eq $Name }
     if (-not $already) {
-        $snap = [ordered]@{
+        $snap = [pscustomobject][ordered]@{
             Path    = $Path
             Name    = $Name
             Existed = $prior.Exists
             OldType = if ($prior.Kind) { "$($prior.Kind)" } else { $null }
             OldValue= if ($prior.Exists) { $prior.Value } else { $null }
         }
-        $Global:Sel01Tweaker.Backup.Add([pscustomobject]$snap) | Out-Null
+        $Global:Sel01Tweaker.Backup.Add($snap) | Out-Null
     }
 
     $display = if ($Type -eq 'Binary') { ($Value | ForEach-Object { '{0:X2}' -f $_ }) -join ' ' } else { "$Value" }
@@ -225,12 +236,18 @@ function Set-Reg {
     }
 
     try {
-        if (-not (Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
-        New-ItemProperty -Path $Path -Name $Name -PropertyType $Type -Value $Value -Force | Out-Null
+        # -ErrorAction Stop so a non-terminating PermissionDenied (protected keys
+        # like some service hives) is caught here and logged as a clean WARN
+        # instead of escaping as raw red console spam.
+        if (-not (Test-Path $Path)) { New-Item -Path $Path -Force -ErrorAction Stop | Out-Null }
+        New-ItemProperty -Path $Path -Name $Name -PropertyType $Type -Value $Value -Force -ErrorAction Stop | Out-Null
         Write-Log "reg: $label" 'INFO'
         if ($Note) { Add-Change $Note }
     } catch {
-        Write-Log "reg FAILED: $label -> $($_.Exception.Message)" 'WARN'
+        # Drop the snapshot we recorded above - the write didn't happen, so revert
+        # must not try to "restore" a value we never changed.
+        if ($snap) { [void]$Global:Sel01Tweaker.Backup.Remove($snap) }
+        Write-Log "reg uebersprungen ($Path\$Name): $($_.Exception.Message)" 'WARN'
     }
 }
 
@@ -266,6 +283,16 @@ function Set-ServiceStart {
         [string]$StartupType,
         [string]$Note
     )
+    # Hard deny-list backstop: never touch security/update/RPC/audio/network/
+    # notification core, no matter what a call site asks for.
+    $deny = @('WinDefend','SecurityHealthService','wscsvc','Sense','wuauserv','UsoSvc',
+              'WaaSMedicSvc','mpssvc','BFE','CryptSvc','EventLog','Winmgmt','RpcSs',
+              'RpcEptMapper','DcomLaunch','Audiosrv','AudioEndpointBuilder','Dnscache',
+              'NlaSvc','nsi','Dhcp','WpnService','LanmanWorkstation','LanmanServer')
+    if ($deny -contains $Name) {
+        Write-Log "service geschuetzt, NICHT angefasst: $Name" 'INFO'
+        return
+    }
     # Map to the registry Start DWORD so snapshot/revert flows through Set-Reg.
     $map = @{ Boot=0; System=1; Automatic=2; Manual=3; Disabled=4 }
     $path = "HKLM:\SYSTEM\CurrentControlSet\Services\$Name"
@@ -274,6 +301,12 @@ function Set-ServiceStart {
         return
     }
     Set-Reg -Path $path -Name 'Start' -Type DWord -Value $map[$StartupType] -Note $Note
+    # Stop it now (best-effort) so the change takes effect without waiting for the
+    # reboot - lowers the live process/service count immediately. Snapshot already
+    # recorded the prior Start type, so -Revert restores it regardless.
+    if (-not $Global:Sel01Tweaker.DryRun -and ($StartupType -eq 'Disabled' -or $StartupType -eq 'Manual')) {
+        try { Stop-Service -Name $Name -Force -ErrorAction Stop } catch {}
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -304,6 +337,7 @@ function Disable-Task {
 # ---------------------------------------------------------------------------
 function Disable-Sel01Feature {
     param([Parameter(Mandatory)][string]$Name)
+    $ProgressPreference = 'SilentlyContinue'
     if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN disable feature: $Name" 'INFO'; return }
     try {
         $f = Get-WindowsOptionalFeature -Online -FeatureName $Name -ErrorAction Stop
@@ -321,6 +355,7 @@ function Remove-Sel01Capability {
         call is slow, so callers can fetch once and pass it in). $Name is a prefix
         before the ~~~~ version suffix.  #>
     param([Parameter(Mandatory)][string]$Name, $InstalledCaps)
+    $ProgressPreference = 'SilentlyContinue'
     if ($Global:Sel01Tweaker.DryRun) { Write-Log "DRYRUN remove capability: $Name" 'INFO'; return }
     try {
         if (-not $InstalledCaps) { $InstalledCaps = Get-WindowsCapability -Online -ErrorAction Stop }
@@ -329,6 +364,7 @@ function Remove-Sel01Capability {
         foreach ($c in $hits) {
             Remove-WindowsCapability -Online -Name $c.Name -ErrorAction Stop | Out-Null
             if (-not ($Global:Sel01Tweaker.CapabilitiesRemoved -contains $c.Name)) { $Global:Sel01Tweaker.CapabilitiesRemoved.Add($c.Name) | Out-Null }
+            $Global:Sel01Tweaker.RebootNeeded = $true
             Write-Log "capability removed: $($c.Name)" 'INFO'
         }
     } catch { Write-Log "capability remove failed: $Name -> $($_.Exception.Message)" 'WARN' }
@@ -413,15 +449,23 @@ function Invoke-Remote {
         Write-Log "Offline - skipping $Name (needs download)" 'WARN'
         return
     }
+    $ProgressPreference = 'SilentlyContinue'
     try {
         Write-Log "Downloading $Name ..." 'INFO'
         $code = Invoke-RestMethod -Uri $Url -UseBasicParsing -ErrorAction Stop
         $sb = [scriptblock]::Create($code)
-        Write-Log "Running $Name $shown" 'INFO'
-        & $sb @Params
+        Write-Log "Running $Name $shown (Ausgabe -> Log)" 'INFO'
+        # The upstream tool prints lots of Write-Host / winget output that would
+        # paint over the overlay - park the panel and funnel every stream to the
+        # run log, then redraw a fresh panel.
+        Suspend-Panel
+        $log = $Global:Sel01Tweaker.LogFile
+        if ($log) { & $sb @Params *>> $log } else { & $sb @Params *> $null }
+        Resume-Panel
         Write-Log "$Name finished" 'OK'
         Add-Change "$Name applied ($shown)"
     } catch {
+        Resume-Panel
         Write-Log "$Name failed: $($_.Exception.Message)" 'WARN'
     }
 }

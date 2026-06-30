@@ -56,4 +56,8 @@ function Invoke-Module-Performance {
 
     # --- No accidental Sticky Keys prompt (5x Shift) ---------------------
     Set-Reg 'HKCU:\Control Panel\Accessibility\StickyKeys' 'Flags' String '506' -Note 'Sticky-Keys 5x-Shift prompt off'
+
+    # Win32PrioritySeparation + NtfsDisableLastAccessUpdate only take effect after
+    # a reboot -> make sure the end-of-run reboot prompt fires.
+    $Global:Sel01Tweaker.RebootNeeded = $true
 }

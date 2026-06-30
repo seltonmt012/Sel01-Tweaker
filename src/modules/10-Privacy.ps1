@@ -112,7 +112,9 @@ function Invoke-Module-Privacy {
     if ($Global:Sel01Tweaker.Profile -eq 'Clean') {
         foreach ($t in @(
             '\Microsoft\Windows\Speech\SpeechModelDownloadTask',
-            '\Microsoft\Windows\Mobile Broadband Accounts\MNO Metadata Parser'
+            '\Microsoft\Windows\Mobile Broadband Accounts\MNO Metadata Parser',
+            '\Microsoft\Windows\Shell\FamilySafetyMonitor',
+            '\Microsoft\Windows\Shell\FamilySafetyRefreshTask'
         )) { Disable-Task $t }
     }
 }

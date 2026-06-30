@@ -58,9 +58,13 @@ function Invoke-Module-WinutilTweaks {
     # cost, nothing breaks, fully reversible. Skipped automatically if absent.
     # Deliberately NOT touched: Defender/Update/firewall/crypto, Print Spooler
     # (printing), Bluetooth (headsets/controllers), Audio, networking core.
+    # NOTE: DPS (Diagnostic Policy Service) intentionally NOT here - its service
+    # key is ACL-protected (TrustedInstaller), so writing Start fails with
+    # PermissionDenied. Not worth an ownership takeover for a medium-risk tweak.
     foreach ($svc in 'Fax','WMPNetworkSvc','WerSvc','MapsBroker','RetailDemo',
                       'lfsvc','PhoneSvc','diagsvc','WpcMonSvc','RemoteRegistry',
-                      'DPS','SensorService') {
+                      'SensorService','DusmSvc','TabletInputService','wisvc',
+                      'PushToInstall','embeddedmode') {
         Set-ServiceStart $svc Manual
     }
     # AllJoyn IoT routing - effectively never used on a gaming PC.
@@ -69,6 +73,11 @@ function Invoke-Module-WinutilTweaks {
 
     # Widgets / News-and-Interests background webview off (policy, reversible).
     Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh' 'AllowNewsAndInterests' DWord 0 -Note 'Widgets/News background off'
+
+    # Bing / web results in Start search off (backstop for offline runs where the
+    # Win11Debloat -DisableBing download is skipped).
+    Set-Reg 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'DisableSearchBoxSuggestions' DWord 1 -Note 'Bing/web in Start search off'
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search' 'BingSearchEnabled' DWord 0
 
     # ---------------------------------------------------------------------
     #  Clean-profile-only, more aggressive trimming.
@@ -85,8 +94,14 @@ function Invoke-Module-WinutilTweaks {
         # so Xbox stack goes Manual too (Gaming profile KEEPS it for Game Bar/HAGS).
         foreach ($svc in 'SysMain','WSearch','PcaSvc',
                           'XblAuthManager','XblGameSave','XboxGipSvc','XboxNetApiSvc',
-                          'SCardSvr','ScDeviceEnum','WbioSrvc','SEMgrSvc','stisvc') {
+                          'SCardSvr','ScDeviceEnum','WbioSrvc','SEMgrSvc','stisvc',
+                          'icssvc','TrkWks','SharedRealitySvc',
+                          'OneSyncSvc','CDPUserSvc','cbdhsvc','PimIndexMaintenanceSvc',
+                          'MessagingService','AarSvc') {
             Set-ServiceStart $svc Manual
+        }
+        foreach ($svc in 'tzautoupdate','WalletService','AssignedAccessManagerSvc') {
+            Set-ServiceStart $svc Disabled
         }
 
         # (Telemetry scheduled tasks are handled centrally + revertably in module 10.)

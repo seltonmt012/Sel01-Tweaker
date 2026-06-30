@@ -38,6 +38,7 @@ function Invoke-Module-Power {
     # --- CPU power throttling off (Desktop/AC only - raises idle power so it
     #     is correctly gated by the laptop/battery guard above). Reversible. --
     Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling' 'PowerThrottlingOff' DWord 1 -Note 'CPU power throttling off (Desktop/AC)'
+    $Global:Sel01Tweaker.RebootNeeded = $true
 
     # --- Opt-in: Win11 global timer resolution (fixes micro-stutter) -----
     if ($Global:Sel01Tweaker.TimerFix) {

@@ -9,7 +9,7 @@
 # Per-module rough sub-step estimates (drives the per-module bar %). Approximate
 # is fine; the bar clamps to 99% until the module returns, then snaps to 100%.
 $Global:Sel01TweakerUiEst = @{
-    Debloat=6; RemoveAI=4; WinutilTweaks=20; Extra=15; Privacy=20; Performance=17;
+    Debloat=6; RemoveAI=8; AppxBloat=24; WinutilTweaks=24; Extra=15; Privacy=24; Performance=18;
     PowerPlan=4; Gaming=15; Network=6; Gpu=6; Features=10; FiveM=10; Power=8; Cleaner=8; RamCleaner=4
 }
 
@@ -28,7 +28,7 @@ function Initialize-Ui {
     if (-not $Global:Sel01Tweaker.UI) {
         $Global:Sel01Tweaker.UI = @{
             Fancy=$false; AnchorRow=$null; Total=14; Done=0; Current=''
-            CurrentIdx=0; ModuleStep=0; ModuleEst=1; Spin=0; LastMsg=''
+            CurrentIdx=0; ModuleStep=0; ModuleEst=1; Spin=0; LastMsg=''; Suspended=$false
         }
     }
     $ui = $Global:Sel01Tweaker.UI
@@ -91,11 +91,30 @@ function Complete-UiPanel {
     Write-Host ''
 }
 
+function Suspend-Panel {
+    <#  Park the cursor below the panel and stop redrawing it, so an external tool
+        (Win11Debloat / winget / DISM) can scroll its own output without corrupting
+        the framed box. Resume-Panel re-anchors a fresh panel afterwards.  #>
+    $ui = $Global:Sel01Tweaker.UI
+    if (-not ($ui -and $ui.Fancy)) { return }
+    try { if ($null -ne $ui.AnchorRow) { [Console]::SetCursorPosition(0, [math]::Min($ui.AnchorRow + 9, [Console]::BufferHeight - 1)) } } catch {}
+    $ui.Suspended = $true
+    Write-Host ''
+}
+
+function Resume-Panel {
+    $ui = $Global:Sel01Tweaker.UI
+    if (-not ($ui -and $ui.Fancy)) { return }
+    $ui.Suspended = $false
+    $ui.AnchorRow = $null   # re-anchor a fresh panel where the cursor now is
+    Show-Panel
+}
+
 function Show-Panel {
     <#  Redraws the framed panel in place at AnchorRow. Any failure latches
         Fancy=$false so the rest of the run degrades to plain logging.  #>
     $ui = $Global:Sel01Tweaker.UI
-    if (-not ($ui -and $ui.Fancy)) { return }
+    if (-not ($ui -and $ui.Fancy) -or $ui.Suspended) { return }
     try {
         $w = [Console]::WindowWidth - 2
         if ($w -gt 58) { $w = 58 } elseif ($w -lt 40) { $w = 40 }

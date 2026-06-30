@@ -230,6 +230,10 @@ function Initialize-Run {
 function Invoke-Pipeline {
     param([string]$Profile,[bool]$DryRun)
 
+    # Kill cmdlet progress bars (DISM, Invoke-WebRequest, etc.) - they overwrite
+    # the overlay panel and corrupt the console layout.
+    $ProgressPreference = 'SilentlyContinue'
+
     Initialize-Run
     $Global:Sel01Tweaker.Profile = $Profile
     $Global:Sel01Tweaker.DryRun  = $DryRun
@@ -246,6 +250,7 @@ function Invoke-Pipeline {
     $steps = @(
         @{ Name='Debloat';       Skip=$Global:Sel01Tweaker.SkipDebloat; Run={ Invoke-Module-Debloat } },
         @{ Name='RemoveAI';      Skip=$Global:Sel01Tweaker.SkipAI;      Run={ Invoke-Module-RemoveAI } },
+        @{ Name='AppxBloat';     Skip=$Global:Sel01Tweaker.SkipDebloat; Run={ Invoke-Module-AppxBloat } },
         @{ Name='WinutilTweaks'; Skip=$false;                           Run={ Invoke-Module-WinutilTweaks } },
         @{ Name='Extra';         Skip=$false;                           Run={ Invoke-Module-Extra } },
         @{ Name='Privacy';       Skip=$false;                           Run={ Invoke-Module-Privacy } },
@@ -281,10 +286,32 @@ function Invoke-Pipeline {
     Write-Log ("Geaendert: {0}  |  schon korrekt (uebersprungen): {1}" -f $Global:Sel01Tweaker.Changes.Count, $Global:Sel01Tweaker.SkippedCount) 'STEP'
     Write-Log "Backup: $($Global:Sel01Tweaker.BackupFile)" 'INFO'
     Write-Log "Log:    $($Global:Sel01Tweaker.LogFile)" 'INFO'
-    if ($Global:Sel01Tweaker.RebootNeeded) { Write-Log 'NEUSTART empfohlen (HAGS / Power-Plan).' 'WARN' }
     Write-Log 'Rueckgaengig: Menue-Option oder  -Revert' 'INFO'
     Write-Log 'Done.' 'OK'
     Show-Tips
+
+    # --- Reboot handling: some tweaks (HAGS, GPU-TdrDelay, DISM-Features,
+    #     NTFS/PrioritySeparation/PowerThrottling, TimerFix/MSI) only take full
+    #     effect after a restart. Ask interactively; never auto-reboot or hang a
+    #     non-interactive (one-liner) run. -DryRun never reboots.
+    if ($Global:Sel01Tweaker.RebootNeeded -and -not $Global:Sel01Tweaker.DryRun) {
+        Write-Host ''
+        Write-Log 'NEUSTART noetig, damit alles greift (HAGS / Kernel / DISM-Features).' 'WARN'
+        $interactive = $true
+        try { if ([Console]::IsInputRedirected) { $interactive = $false } } catch { $interactive = $false }
+        if ($interactive) {
+            $ans = Read-Host '   Jetzt neu starten?  [J] = jetzt   [Enter] = spaeter'
+            if ($ans -match '^[jJyY]') {
+                Write-Log 'Starte in 5 Sekunden neu... (Strg+C zum Abbrechen)' 'STEP'
+                Start-Sleep -Seconds 5
+                Restart-Computer -Force
+            } else {
+                Write-Log 'Ok - bitte spaeter selbst neu starten.' 'INFO'
+            }
+        } else {
+            Write-Log 'Nicht-interaktiv: bitte manuell neu starten.' 'INFO'
+        }
+    }
 }
 
 # ===========================================================================

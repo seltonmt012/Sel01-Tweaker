@@ -63,10 +63,14 @@ function Invoke-Revert {
         try {
             if ($entry.Existed) {
                 $kind = if ($entry.OldType) { $entry.OldType } else { 'String' }
+                if ($kind -notin 'String','ExpandString','Binary','DWord','MultiString','QWord') {
+                    Write-Log "revert skip (ungueltiger Typ '$kind'): $($entry.Path)\$($entry.Name)" 'WARN'
+                    continue
+                }
                 $val  = $entry.OldValue
                 if ($kind -eq 'Binary' -and $val) { $val = [byte[]]($val | ForEach-Object { [byte]$_ }) }
-                if (-not (Test-Path $entry.Path)) { New-Item -Path $entry.Path -Force | Out-Null }
-                New-ItemProperty -Path $entry.Path -Name $entry.Name -PropertyType $kind -Value $val -Force | Out-Null
+                if (-not (Test-Path $entry.Path)) { New-Item -Path $entry.Path -Force -ErrorAction Stop | Out-Null }
+                New-ItemProperty -Path $entry.Path -Name $entry.Name -PropertyType $kind -Value $val -Force -ErrorAction Stop | Out-Null
                 Write-Log "restored $($entry.Path)\$($entry.Name)" 'INFO'
             } else {
                 # Value did not exist before -> remove what we added.

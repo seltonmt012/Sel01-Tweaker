@@ -9,7 +9,7 @@
 # Per-module rough sub-step estimates (drives the per-module bar %). Approximate
 # is fine; the bar clamps to 99% until the module returns, then snaps to 100%.
 $Global:Sel01TweakerUiEst = @{
-    Debloat=6; RemoveAI=8; AppxBloat=24; WinutilTweaks=24; Extra=15; Privacy=24; Win10=8; Performance=18;
+    Debloat=6; RemoveAI=8; AppxBloat=26; WinutilTweaks=24; Extra=15; Privacy=34; Win10=8; Services=20; Performance=18;
     PowerPlan=4; Gaming=18; Network=6; Gpu=6; Features=10; FiveM=12; Power=8; Cleaner=8; RamCleaner=4
 }
 

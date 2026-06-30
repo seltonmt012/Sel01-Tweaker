@@ -255,6 +255,7 @@ function Invoke-Pipeline {
         @{ Name='Extra';         Skip=$false;                           Run={ Invoke-Module-Extra } },
         @{ Name='Privacy';       Skip=$false;                           Run={ Invoke-Module-Privacy } },
         @{ Name='Win10';         Skip=$false;                           Run={ Invoke-Module-Win10 } },
+        @{ Name='Services';      Skip=$false;                           Run={ Invoke-Module-Services } },
         @{ Name='Performance';   Skip=$false;                           Run={ Invoke-Module-Performance } },
         @{ Name='PowerPlan';     Skip=$false;                           Run={ Invoke-Module-PowerPlan } },
         @{ Name='Gaming';        Skip=$false;                           Run={ Invoke-Module-Gaming } },

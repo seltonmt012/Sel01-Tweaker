@@ -51,7 +51,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.7.2'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.8.0'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -658,7 +658,7 @@ function Invoke-Revert {
 # Per-module rough sub-step estimates (drives the per-module bar %). Approximate
 # is fine; the bar clamps to 99% until the module returns, then snaps to 100%.
 $Global:Sel01TweakerUiEst = @{
-    Debloat=6; RemoveAI=8; AppxBloat=24; WinutilTweaks=24; Extra=15; Privacy=24; Win10=8; Performance=18;
+    Debloat=6; RemoveAI=8; AppxBloat=26; WinutilTweaks=24; Extra=15; Privacy=34; Win10=8; Services=20; Performance=18;
     PowerPlan=4; Gaming=18; Network=6; Gpu=6; Features=10; FiveM=12; Power=8; Cleaner=8; RamCleaner=4
 }
 
@@ -1631,6 +1631,31 @@ function Invoke-Module-Privacy {
     Set-Reg $edge 'PersonalizationReportingEnabled' DWord 0
     Set-Reg $edge 'UserFeedbackAllowed'            DWord 0
 
+    # --- Edge debloat (shopping/collections/rewards/widget/first-run/DNT) ---
+    foreach ($v in 'EdgeShoppingAssistantEnabled','EdgeCollectionsEnabled','ShowMicrosoftRewards',
+                    'WebWidgetAllowed','DiagnosticData','EdgeAssetDeliveryServiceEnabled',
+                    'ShowRecommendationsEnabled') {
+        Set-Reg $edge $v DWord 0
+    }
+    Set-Reg $edge 'HideFirstRunExperience' DWord 1 -Note 'Edge debloat (shopping/collections/rewards/widget/first-run)'
+    Set-Reg $edge 'ConfigureDoNotTrack'    DWord 1
+    # Remove Edge auto-launch-at-logon Run entries (one fewer startup process).
+    $run = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+    if (Test-Path $run) {
+        (Get-Item $run).Property | Where-Object { $_ -like 'MicrosoftEdgeAutoLaunch_*' } |
+            ForEach-Object { Remove-Reg $run $_ -Note 'Edge auto-launch at logon off' }
+    }
+
+    # --- Extra consumer-content / suggestions policies -------------------
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableConsumerAccountStateContent' DWord 1 -Note 'Consumer account-state content off'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableThirdPartySuggestions'       DWord 1
+
+    # --- WPBT (OEM firmware-injected exe at boot) off --------------------
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' 'DisableWpbtExecution' DWord 1 -Note 'WPBT firmware exe execution off'
+
+    # --- Win11 taskbar right-click End Task ------------------------------
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings' 'TaskbarEndTask' DWord 1 -Note 'Taskbar right-click End Task on'
+
     # --- Office telemetry (no-op if Office absent) -----------------------
     Set-Reg 'HKCU:\SOFTWARE\Policies\Microsoft\office\common\clienttelemetry' 'sendtelemetry' DWord 3 -Note 'Office telemetry off (if installed)'
     Set-Reg 'HKCU:\SOFTWARE\Policies\Microsoft\office\16.0\osm' 'enablelogging' DWord 0
@@ -1684,7 +1709,11 @@ function Invoke-Module-Privacy {
         '\Microsoft\Windows\ApplicationData\appuriverifierinstall',
         '\Microsoft\Windows\Flighting\FeatureConfig\ReconcileFeatures',
         '\Microsoft\Windows\Flighting\FeatureConfig\UsageDataReporting',
-        '\Microsoft\Windows\Flighting\OneSettings\RefreshCache'
+        '\Microsoft\Windows\Flighting\OneSettings\RefreshCache',
+        '\Microsoft\Windows\DiskFootprint\Diagnostics',
+        '\Microsoft\Windows\Device Information\Device',
+        '\Microsoft\Windows\Device Information\Device User',
+        '\Microsoft\Windows\Diagnosis\Scheduled'
     )) { Disable-Task $t }
     Add-Change 'Telemetry/feedback scheduled tasks disabled (revertable)'
 
@@ -2025,7 +2054,8 @@ function Invoke-Module-AppxBloat {
         'Microsoft.People','Microsoft.Todos','Microsoft.GetHelp','Microsoft.WindowsFeedbackHub',
         'Microsoft.WindowsMaps','MicrosoftCorporationII.QuickAssist','MicrosoftCorporationII.MicrosoftFamily',
         'Clipchamp.Clipchamp','Microsoft.MicrosoftSolitaireCollection','Microsoft.Microsoft3DViewer',
-        'Microsoft.MixedReality.Portal','Microsoft.SkypeApp','Microsoft.XboxSpeechToTextOverlay'
+        'Microsoft.MixedReality.Portal','Microsoft.SkypeApp','Microsoft.XboxSpeechToTextOverlay',
+        'Microsoft.Getstarted','Microsoft.Print3D'
     )
     foreach ($a in $both) { Remove-Sel01Appx $a }
 
@@ -2034,6 +2064,7 @@ function Invoke-Module-AppxBloat {
     if ($Global:Sel01Tweaker.Profile -eq 'Clean') {
         foreach ($a in 'MicrosoftWindows.Client.WebExperience','Microsoft.ZuneMusic','Microsoft.ZuneVideo',
                         'Microsoft.WindowsCommunicationsApps','Microsoft.MicrosoftStickyNotes',
+                        'Microsoft.BingNews','MicrosoftWindows.CrossDevice',
                         'Microsoft.GamingApp','Microsoft.XboxGamingOverlay') {
             Remove-Sel01Appx $a
         }
@@ -2079,6 +2110,54 @@ function Invoke-Module-Win10 {
 
     # --- Win10 diagnostics standard collector service off ----------------
     Set-ServiceStart 'diagnosticshub.standardcollector.service' Disabled -Note 'Diagnostics collector off (Win10)'
+}
+
+
+# ----- bundled: 18-Services.ps1 -----
+# ============================================================================
+#  Module 18 - Extra services  (research-vetted, ALL Manual - never Disabled)
+#  Surveyed from winutil / Optimizer / privacy.sexy / Sophia / O&O and a deep
+#  services audit, then adversarially safety-checked. Manual (not Disabled) so
+#  anything still demand-starts -> nothing breaks, idle load drops, fully
+#  reversible (Set-ServiceStart snapshots the prior Start type). The hard
+#  deny-list in Set-ServiceStart still blocks anything security/network core.
+# ============================================================================
+
+function Invoke-Module-Services {
+    Write-Log '=== Module: Extra services (Manual, vetted) ===' 'STEP'
+
+    $clean = ($Global:Sel01Tweaker.Profile -eq 'Clean')
+
+    # --- Both profiles: diagnostics / legacy-net / niche, all demand-startable
+    foreach ($svc in 'WdiServiceHost','WdiSystemHost','lltdsvc','Spectrum',
+                      'perceptionsimulation','lmhosts','autotimesvc',
+                      'diagnosticshub.standardcollector.service') {
+        Set-ServiceStart $svc Manual
+    }
+    # Cellular modem service: desktops only (laptops/tablets may have WWAN hw).
+    if (-not $Global:Sel01Tweaker.IsLaptop) {
+        Set-ServiceStart 'WwanSvc' Manual
+    }
+    Add-Change 'Extra diagnostics/legacy services -> Manual'
+
+    # --- Clean-only: deeper trim of services unused on a home/gaming box -----
+    # All Manual: offline-files, storage UI (trigger), ICS/NAT (trigger - WSL2/
+    # Hyper-V keep working), Miracast, MTP, printer toasts, inbound RDP, WebDAV,
+    # File History, cross-device, peer-name, VPN auto-dial, SSTP, problem-report
+    # viewer, event forwarding, encryption plugins, SNMP traps, 802.1X wired,
+    # dynamic-lock, smart-card cert, domain logon (no-op off-domain), network
+    # discovery, UPnP/DLNA discovery, hardware-detection (AutoPlay).
+    if ($clean) {
+        foreach ($svc in 'CscService','StorSvc','SharedAccess','WFDSConMgrSvc','WPDBusEnum',
+                          'PrintNotify','TermService','SessionEnv','UmRdpService','WebClient',
+                          'fhsvc','CDPSvc','p2psvc','p2pimsvc','PNRPsvc','PNRPAutoReg',
+                          'RasAuto','SstpSvc','wercplsupport','Wecsvc','WEPHOSTSVC','SNMPTRAP',
+                          'dot3svc','NaturalAuthentication','CertPropSvc','Netlogon',
+                          'fdPHost','FDResPub','SSDPSRV','upnphost','ShellHWDetection') {
+            Set-ServiceStart $svc Manual
+        }
+        Add-Change 'Clean: deeper unused-service trim -> Manual'
+    }
 }
 
 
@@ -2305,6 +2384,7 @@ function Invoke-Pipeline {
         @{ Name='Extra';         Skip=$false;                           Run={ Invoke-Module-Extra } },
         @{ Name='Privacy';       Skip=$false;                           Run={ Invoke-Module-Privacy } },
         @{ Name='Win10';         Skip=$false;                           Run={ Invoke-Module-Win10 } },
+        @{ Name='Services';      Skip=$false;                           Run={ Invoke-Module-Services } },
         @{ Name='Performance';   Skip=$false;                           Run={ Invoke-Module-Performance } },
         @{ Name='PowerPlan';     Skip=$false;                           Run={ Invoke-Module-PowerPlan } },
         @{ Name='Gaming';        Skip=$false;                           Run={ Invoke-Module-Gaming } },

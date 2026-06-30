@@ -34,7 +34,8 @@ function Invoke-Module-AppxBloat {
         'Microsoft.People','Microsoft.Todos','Microsoft.GetHelp','Microsoft.WindowsFeedbackHub',
         'Microsoft.WindowsMaps','MicrosoftCorporationII.QuickAssist','MicrosoftCorporationII.MicrosoftFamily',
         'Clipchamp.Clipchamp','Microsoft.MicrosoftSolitaireCollection','Microsoft.Microsoft3DViewer',
-        'Microsoft.MixedReality.Portal','Microsoft.SkypeApp','Microsoft.XboxSpeechToTextOverlay'
+        'Microsoft.MixedReality.Portal','Microsoft.SkypeApp','Microsoft.XboxSpeechToTextOverlay',
+        'Microsoft.Getstarted','Microsoft.Print3D'
     )
     foreach ($a in $both) { Remove-Sel01Appx $a }
 
@@ -43,6 +44,7 @@ function Invoke-Module-AppxBloat {
     if ($Global:Sel01Tweaker.Profile -eq 'Clean') {
         foreach ($a in 'MicrosoftWindows.Client.WebExperience','Microsoft.ZuneMusic','Microsoft.ZuneVideo',
                         'Microsoft.WindowsCommunicationsApps','Microsoft.MicrosoftStickyNotes',
+                        'Microsoft.BingNews','MicrosoftWindows.CrossDevice',
                         'Microsoft.GamingApp','Microsoft.XboxGamingOverlay') {
             Remove-Sel01Appx $a
         }

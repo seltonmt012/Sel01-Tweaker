@@ -55,6 +55,31 @@ function Invoke-Module-Privacy {
     Set-Reg $edge 'PersonalizationReportingEnabled' DWord 0
     Set-Reg $edge 'UserFeedbackAllowed'            DWord 0
 
+    # --- Edge debloat (shopping/collections/rewards/widget/first-run/DNT) ---
+    foreach ($v in 'EdgeShoppingAssistantEnabled','EdgeCollectionsEnabled','ShowMicrosoftRewards',
+                    'WebWidgetAllowed','DiagnosticData','EdgeAssetDeliveryServiceEnabled',
+                    'ShowRecommendationsEnabled') {
+        Set-Reg $edge $v DWord 0
+    }
+    Set-Reg $edge 'HideFirstRunExperience' DWord 1 -Note 'Edge debloat (shopping/collections/rewards/widget/first-run)'
+    Set-Reg $edge 'ConfigureDoNotTrack'    DWord 1
+    # Remove Edge auto-launch-at-logon Run entries (one fewer startup process).
+    $run = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+    if (Test-Path $run) {
+        (Get-Item $run).Property | Where-Object { $_ -like 'MicrosoftEdgeAutoLaunch_*' } |
+            ForEach-Object { Remove-Reg $run $_ -Note 'Edge auto-launch at logon off' }
+    }
+
+    # --- Extra consumer-content / suggestions policies -------------------
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableConsumerAccountStateContent' DWord 1 -Note 'Consumer account-state content off'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableThirdPartySuggestions'       DWord 1
+
+    # --- WPBT (OEM firmware-injected exe at boot) off --------------------
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' 'DisableWpbtExecution' DWord 1 -Note 'WPBT firmware exe execution off'
+
+    # --- Win11 taskbar right-click End Task ------------------------------
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings' 'TaskbarEndTask' DWord 1 -Note 'Taskbar right-click End Task on'
+
     # --- Office telemetry (no-op if Office absent) -----------------------
     Set-Reg 'HKCU:\SOFTWARE\Policies\Microsoft\office\common\clienttelemetry' 'sendtelemetry' DWord 3 -Note 'Office telemetry off (if installed)'
     Set-Reg 'HKCU:\SOFTWARE\Policies\Microsoft\office\16.0\osm' 'enablelogging' DWord 0
@@ -108,7 +133,11 @@ function Invoke-Module-Privacy {
         '\Microsoft\Windows\ApplicationData\appuriverifierinstall',
         '\Microsoft\Windows\Flighting\FeatureConfig\ReconcileFeatures',
         '\Microsoft\Windows\Flighting\FeatureConfig\UsageDataReporting',
-        '\Microsoft\Windows\Flighting\OneSettings\RefreshCache'
+        '\Microsoft\Windows\Flighting\OneSettings\RefreshCache',
+        '\Microsoft\Windows\DiskFootprint\Diagnostics',
+        '\Microsoft\Windows\Device Information\Device',
+        '\Microsoft\Windows\Device Information\Device User',
+        '\Microsoft\Windows\Diagnosis\Scheduled'
     )) { Disable-Task $t }
     Add-Change 'Telemetry/feedback scheduled tasks disabled (revertable)'
 

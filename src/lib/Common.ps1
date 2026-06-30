@@ -84,6 +84,20 @@ function Write-Log {
         [ValidateSet('INFO','WARN','ERROR','OK','STEP')][string]$Level = 'INFO'
     )
     $line = "[$Level] $Message"
+    # File log always (full detail, regardless of overlay).
+    if ($Global:Sel01Tweaker.LogFile) {
+        Add-Content -Path $Global:Sel01Tweaker.LogFile -Value $line -Encoding UTF8
+    }
+    $ui = $Global:Sel01Tweaker.UI
+    # Overlay active AND inside a module: drive the panel, keep the screen clean.
+    if ($ui -and $ui.Fancy -and $ui.CurrentIdx -gt 0) {
+        $ui.ModuleStep++
+        if ($Level -eq 'WARN' -or $Level -eq 'ERROR') { $ui.LastMsg = "! $Message" }
+        elseif ($Level -ne 'STEP')                    { $ui.LastMsg = $Message }
+        Show-Panel
+        return
+    }
+    # Plain mode (non-fancy, or before/after the module loop).
     $color = switch ($Level) {
         'OK'    { 'Green' }
         'WARN'  { 'Yellow' }
@@ -92,9 +106,6 @@ function Write-Log {
         default { 'Gray' }
     }
     Write-Host $line -ForegroundColor $color
-    if ($Global:Sel01Tweaker.LogFile) {
-        Add-Content -Path $Global:Sel01Tweaker.LogFile -Value $line -Encoding UTF8
-    }
 }
 
 function Add-Change {

@@ -90,7 +90,17 @@ function Invoke-Module-Privacy {
         '\Microsoft\Windows\Feedback\Siuf\DmClientOnScenarioDownload',
         '\Microsoft\Windows\Windows Error Reporting\QueueReporting',
         '\Microsoft\Windows\CloudExperienceHost\CreateObjectTask',
-        '\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector'
+        '\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector',
+        '\Microsoft\Windows\Application Experience\StartupAppTask',
+        '\Microsoft\Windows\Application Experience\PcaPatchDbTask',
+        '\Microsoft\Windows\Application Experience\MareBackup',
+        '\Microsoft\Windows\Maps\MapsToastTask',
+        '\Microsoft\Windows\Maps\MapsUpdateTask',
+        '\Microsoft\Windows\Retail Demo\CleanupOfflineContent',
+        '\Microsoft\Windows\Power Efficiency Diagnostics\AnalyzeSystem',
+        '\Microsoft\Windows\Maintenance\WinSAT',
+        '\Microsoft\Windows\NetTrace\GatherNetworkInfo',
+        '\Microsoft\Windows\PI\Sqm-Tasks'
     )) { Disable-Task $t }
     Add-Change 'Telemetry/feedback scheduled tasks disabled (revertable)'
 }

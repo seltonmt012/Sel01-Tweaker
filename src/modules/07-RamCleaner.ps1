@@ -120,12 +120,30 @@ try{SetSystemFileCacheSize(new IntPtr(-1),new IntPtr(-1),0);}catch{}}
     Set-Content -Path $helper -Value $helperBody -Encoding UTF8
 
     $taskName = 'Sel01Tweaker-RamCleaner'
-    $cmd = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$helper`""
+    # Register via the ScheduledTasks module (not the schtasks string, which hid
+    # failures behind 2>$null and only got an HOURLY trigger - so it never ran
+    # right after a reboot and could silently fail to persist). Two triggers:
+    # ~3 min after every boot, then repeating hourly. Verified after creation.
     try {
-        schtasks /Create /TN $taskName /TR $cmd /SC HOURLY /RL HIGHEST /RU SYSTEM /F 2>$null | Out-Null
-        $Global:Sel01Tweaker.RamTaskName = $taskName
-        Write-Log "Registered hourly RAM-clean task: $taskName" 'OK'
-        Add-Change 'Hourly RAM-clean task installed'
+        $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
+            -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$helper`""
+        $tStart = New-ScheduledTaskTrigger -AtStartup
+        $tStart.Delay = 'PT3M'
+        $tHourly = New-ScheduledTaskTrigger -Once -At ([datetime]'00:00') `
+            -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration (New-TimeSpan -Days 3650)
+        $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest -LogonType ServiceAccount
+        $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+            -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $tStart,$tHourly `
+            -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
+
+        if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+            $Global:Sel01Tweaker.RamTaskName = $taskName
+            Write-Log "Registered RAM-clean task (boot +3min, then hourly): $taskName" 'OK'
+            Add-Change 'RAM-clean task installed (runs after every reboot + hourly)'
+        } else {
+            Write-Log "RAM task did not register (not found after create)" 'WARN'
+        }
     } catch {
         Write-Log "Could not register RAM task: $($_.Exception.Message)" 'WARN'
     }

@@ -29,9 +29,20 @@ Tests: use `tests\run-checks.ps1` (dependency-free). The `tests\Sel01Tweaker.Tes
 specs are Pester v5 syntax and will NOT run on the Pester 3.x that ships with Windows.
 There is no single-test runner; `run-checks.ps1` runs all assertions and exits non-zero on failure.
 
+**Testing on a clean VM** (`tools/`): `new-testvm.ps1` builds an unattended Hyper-V
+Gen2 Win11 VM (vTPM + SecureBoot, `autounattend.xml` delivered as a second DVD ISO
+built via IMAPI - a fixed seed VHDX is NOT scanned by Setup) and boots it; LabConfig
+bypass keys let it install on hosts whose CPU isn't Win11-listed. `vm-autofinish.ps1`
+(registered as a one-shot SYSTEM logon/startup task) starts the VM, waits for the
+desktop, and snapshots `clean-desktop`. Revert + retest: `new-testvm.ps1 -RevertTo clean-desktop`.
+Note: the Hyper-V hypervisor only loads at boot, so enabling Hyper-V or
+`bcdedit /set hypervisorlaunchtype auto` needs a host reboot before VMs can start;
+Gen2 + a Windows ISO shows a "Press any key to boot from CD" prompt that times out
+headless - send keystrokes via the Msvm_Keyboard WMI `TypeKey` during the first boot.
+
 DryRun-smoke one module without elevation (writes nothing):
 ```powershell
-. .\src\lib\Common.ps1; . .\src\lib\Backup.ps1
+. .\src\lib\Common.ps1; . .\src\lib\Backup.ps1; . .\src\lib\Ui.ps1
 Get-ChildItem .\src\modules\*.ps1 | Sort-Object Name | ForEach-Object { . $_.FullName }
 $Global:Sel01Tweaker.DryRun = $true; Initialize-Sel01TweakerState -Stamp 'smoke'
 $Global:Sel01Tweaker.Profile = 'Gaming'; $Global:Sel01Tweaker.Backup = [System.Collections.Generic.List[object]]::new()
@@ -41,7 +52,7 @@ Invoke-Module-FiveM   # or any Invoke-Module-*
 ## Architecture
 
 Single self-elevating orchestrator, developed as `src/Sel01Tweaker.ps1` (entry)
-plus two libs and a numbered module set, all dot-sourced at runtime. `build.ps1`
+plus three libs and a numbered module set, all dot-sourced at runtime. `build.ps1`
 inlines libs+modules at the `#__SEL01TWEAKER_BUNDLE_INSERT__` marker to produce
 `dist/Sel01Tweaker.ps1`, the single file users run / `irm`.
 
@@ -56,13 +67,21 @@ inlines libs+modules at the `#__SEL01TWEAKER_BUNDLE_INSERT__` marker to produce
   snapshots + disabled tasks + minted power-scheme GUID + RAM task), and
   `Invoke-Revert` reads it back to restore values, re-enable tasks, delete the
   power scheme, and remove the RAM task.
-- `src/modules/01..12` - the stages, run in order by `Invoke-Pipeline`:
+- `src/lib/Ui.ps1` - the console overlay (framed live panel, per-module + overall
+  progress bars, spinner). `Initialize-Ui` probes VT/ANSI and sets `UI.Fancy`;
+  it is `$false` (→ plain `Write-Log` output, unchanged) when output is redirected
+  (`irm | iex`, captured) or VT is unavailable, and any render error latches it off
+  permanently. Driven zero-touch through `Write-Log` + `Invoke-Pipeline` hooks
+  (`Set-UiModule`/`Complete-UiModule`/`Complete-UiPanel`) - modules need no changes.
+- `src/modules/01..14` - the stages, run in order by `Invoke-Pipeline`:
   01 Debloat + 02 RemoveAI **orchestrate** (download MIT upstream Win11Debloat /
   RemoveWindowsAI and run them silently); 03 WinutilTweaks, 04 Performance,
   06 Gaming, 09 Extra, 10 Privacy are **native** reimplementations; 08 FiveM
   (Gaming only, includes a whitelist cache cleaner), 11 Power (desktop-on-AC
   only, plus opt-in `-TimerFix`/`-MsiMode`), 12 Cleaner, 07 RamCleaner
-  (independent Win32 P/Invoke - WinMemoryCleaner is GPL, so no code is copied).
+  (independent Win32 P/Invoke - WinMemoryCleaner is GPL, so no code is copied);
+  13 Network (Gaming-only, Nagle off per NIC), 14 Gpu (NVIDIA + AMD telemetry
+  tasks + opt-out reg flags; vendor-gated, drivers/updates untouched).
 
 **Profiles** (`-Profile Gaming|Clean`) gate behaviour inside modules via
 `$Global:Sel01Tweaker.Profile`. Gaming keeps Game Mode + HAGS and is gentler;
@@ -95,6 +114,12 @@ cleanly when stdin is non-interactive so the menu can't spin.
   defaults). See `07-RamCleaner.ps1`.
 - **`Invoke-Remote` splats a hashtable by name**, not a flat `-Flag` array, so
   switches bind and array params (RemoveWindowsAI `-Options`) pass element-by-element.
+  The param names/`-Options` values must match the **live** upstream scripts (they get
+  renamed - e.g. Win11Debloat `DisableChat` → `HideChat`); a wrong name aborts the
+  whole orchestrated run. Verify by parsing the downloaded script's `param()` block.
+- **The overlay must always degrade.** Never assume `UI.Fancy`; all panel rendering
+  stays in `try/catch` that latches `Fancy=$false`, and `Write-Log` keeps its plain
+  path so redirected/`iex` runs and legacy consoles look exactly as before.
 - After editing `src/`, **rebuild** (`.\build.ps1`) and re-run `run-checks.ps1`.
   Never hand-edit `dist/Sel01Tweaker.ps1` - it's generated. Runtime logs/backups
   live in `%ProgramData%\Sel01Tweaker\`.

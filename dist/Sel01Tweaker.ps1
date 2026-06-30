@@ -51,7 +51,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.3.0'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.4.0'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -735,6 +735,28 @@ function Invoke-Module-Debloat {
 function Invoke-Module-RemoveAI {
     Write-Log '=== Module: Remove Windows AI ===' 'STEP'
 
+    # --- Native, reliable, reversible AI policy disables (run first) ------
+    # The upstream RemoveWindowsAI script does deep appx/CBS surgery that can
+    # crash on newer builds (e.g. a settings.dat editor hitting an array value);
+    # its failure is caught below and never aborts the run, but the high-value
+    # AI switch-offs are documented policy keys we set natively via Set-Reg so
+    # they always apply and revert cleanly.
+    $copilotHKLM = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot'
+    $copilotHKCU = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot'
+    Set-Reg $copilotHKLM 'TurnOffWindowsCopilot' DWord 1 -Note 'Windows Copilot off (policy)'
+    Set-Reg $copilotHKCU 'TurnOffWindowsCopilot' DWord 1
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowCopilotButton' DWord 0 -Note 'Copilot taskbar button off'
+
+    $winAiHKLM = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI'
+    $winAiHKCU = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI'
+    Set-Reg $winAiHKLM 'DisableAIDataAnalysis' DWord 1 -Note 'Recall (AI data analysis) off (policy)'
+    Set-Reg $winAiHKCU 'DisableAIDataAnalysis' DWord 1
+    Set-Reg $winAiHKLM 'DisableClickToDo'      DWord 1 -Note 'Click to Do off (policy)'
+    Set-Reg $winAiHKCU 'DisableClickToDo'      DWord 1
+
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Notepad' 'DisableAIFeatures' DWord 1 -Note 'Notepad AI features off'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' DWord 0 -Note 'Edge Copilot sidebar off'
+
     $url = 'https://raw.githubusercontent.com/zoicware/RemoveWindowsAI/main/RemoveWindowsAi.ps1'
 
     if ($Global:Sel01Tweaker.Profile -eq 'Clean') {
@@ -816,6 +838,17 @@ function Invoke-Module-WinutilTweaks {
     # --- Show file extensions + hidden files (QoL) -----------------------
     Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'HideFileExt' DWord 0 -Note 'File extensions shown'
 
+    # --- Unused background services -> Manual (both profiles) -------------
+    # Manual (NOT Disabled) so an app can still start them on demand: zero idle
+    # cost, nothing breaks, fully reversible. Skipped automatically if absent.
+    # Deliberately NOT touched: Defender/Update/firewall/crypto, Print Spooler
+    # (printing), Bluetooth (headsets/controllers), Audio, networking core.
+    foreach ($svc in 'Fax','WMPNetworkSvc','WerSvc','MapsBroker','RetailDemo',
+                      'lfsvc','PhoneSvc','diagsvc','WpcMonSvc','RemoteRegistry') {
+        Set-ServiceStart $svc Manual
+    }
+    Add-Change 'Unused background services set to Manual'
+
     # ---------------------------------------------------------------------
     #  Clean-profile-only, more aggressive trimming.
     # ---------------------------------------------------------------------
@@ -826,8 +859,11 @@ function Invoke-Module-WinutilTweaks {
         Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications' 'GlobalUserDisabled' DWord 1 -Note 'Background apps off'
         Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsRunInBackground' DWord 2
 
-        # Services to Manual (safe, reversible set from winutil)
-        foreach ($svc in 'SysMain','MapsBroker','RetailDemo','WSearch','PcaSvc','RemoteRegistry') {
+        # Services to Manual (safe, reversible). Clean = Office box, no gaming,
+        # so Xbox stack goes Manual too (Gaming profile KEEPS it for Game Bar/HAGS).
+        foreach ($svc in 'SysMain','WSearch','PcaSvc',
+                          'XblAuthManager','XblGameSave','XboxGipSvc','XboxNetApiSvc',
+                          'SCardSvr','ScDeviceEnum','WbioSrvc','SEMgrSvc','stisvc') {
             Set-ServiceStart $svc Manual
         }
 
@@ -1115,12 +1151,30 @@ try{SetSystemFileCacheSize(new IntPtr(-1),new IntPtr(-1),0);}catch{}}
     Set-Content -Path $helper -Value $helperBody -Encoding UTF8
 
     $taskName = 'Sel01Tweaker-RamCleaner'
-    $cmd = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$helper`""
+    # Register via the ScheduledTasks module (not the schtasks string, which hid
+    # failures behind 2>$null and only got an HOURLY trigger - so it never ran
+    # right after a reboot and could silently fail to persist). Two triggers:
+    # ~3 min after every boot, then repeating hourly. Verified after creation.
     try {
-        schtasks /Create /TN $taskName /TR $cmd /SC HOURLY /RL HIGHEST /RU SYSTEM /F 2>$null | Out-Null
-        $Global:Sel01Tweaker.RamTaskName = $taskName
-        Write-Log "Registered hourly RAM-clean task: $taskName" 'OK'
-        Add-Change 'Hourly RAM-clean task installed'
+        $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
+            -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$helper`""
+        $tStart = New-ScheduledTaskTrigger -AtStartup
+        $tStart.Delay = 'PT3M'
+        $tHourly = New-ScheduledTaskTrigger -Once -At ([datetime]'00:00') `
+            -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration (New-TimeSpan -Days 3650)
+        $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest -LogonType ServiceAccount
+        $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+            -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $tStart,$tHourly `
+            -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
+
+        if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+            $Global:Sel01Tweaker.RamTaskName = $taskName
+            Write-Log "Registered RAM-clean task (boot +3min, then hourly): $taskName" 'OK'
+            Add-Change 'RAM-clean task installed (runs after every reboot + hourly)'
+        } else {
+            Write-Log "RAM task did not register (not found after create)" 'WARN'
+        }
     } catch {
         Write-Log "Could not register RAM task: $($_.Exception.Message)" 'WARN'
     }
@@ -1403,7 +1457,17 @@ function Invoke-Module-Privacy {
         '\Microsoft\Windows\Feedback\Siuf\DmClientOnScenarioDownload',
         '\Microsoft\Windows\Windows Error Reporting\QueueReporting',
         '\Microsoft\Windows\CloudExperienceHost\CreateObjectTask',
-        '\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector'
+        '\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector',
+        '\Microsoft\Windows\Application Experience\StartupAppTask',
+        '\Microsoft\Windows\Application Experience\PcaPatchDbTask',
+        '\Microsoft\Windows\Application Experience\MareBackup',
+        '\Microsoft\Windows\Maps\MapsToastTask',
+        '\Microsoft\Windows\Maps\MapsUpdateTask',
+        '\Microsoft\Windows\Retail Demo\CleanupOfflineContent',
+        '\Microsoft\Windows\Power Efficiency Diagnostics\AnalyzeSystem',
+        '\Microsoft\Windows\Maintenance\WinSAT',
+        '\Microsoft\Windows\NetTrace\GatherNetworkInfo',
+        '\Microsoft\Windows\PI\Sqm-Tasks'
     )) { Disable-Task $t }
     Add-Change 'Telemetry/feedback scheduled tasks disabled (revertable)'
 }

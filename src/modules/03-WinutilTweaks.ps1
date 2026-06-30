@@ -53,6 +53,17 @@ function Invoke-Module-WinutilTweaks {
     # --- Show file extensions + hidden files (QoL) -----------------------
     Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'HideFileExt' DWord 0 -Note 'File extensions shown'
 
+    # --- Unused background services -> Manual (both profiles) -------------
+    # Manual (NOT Disabled) so an app can still start them on demand: zero idle
+    # cost, nothing breaks, fully reversible. Skipped automatically if absent.
+    # Deliberately NOT touched: Defender/Update/firewall/crypto, Print Spooler
+    # (printing), Bluetooth (headsets/controllers), Audio, networking core.
+    foreach ($svc in 'Fax','WMPNetworkSvc','WerSvc','MapsBroker','RetailDemo',
+                      'lfsvc','PhoneSvc','diagsvc','WpcMonSvc','RemoteRegistry') {
+        Set-ServiceStart $svc Manual
+    }
+    Add-Change 'Unused background services set to Manual'
+
     # ---------------------------------------------------------------------
     #  Clean-profile-only, more aggressive trimming.
     # ---------------------------------------------------------------------
@@ -63,8 +74,11 @@ function Invoke-Module-WinutilTweaks {
         Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications' 'GlobalUserDisabled' DWord 1 -Note 'Background apps off'
         Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsRunInBackground' DWord 2
 
-        # Services to Manual (safe, reversible set from winutil)
-        foreach ($svc in 'SysMain','MapsBroker','RetailDemo','WSearch','PcaSvc','RemoteRegistry') {
+        # Services to Manual (safe, reversible). Clean = Office box, no gaming,
+        # so Xbox stack goes Manual too (Gaming profile KEEPS it for Game Bar/HAGS).
+        foreach ($svc in 'SysMain','WSearch','PcaSvc',
+                          'XblAuthManager','XblGameSave','XboxGipSvc','XboxNetApiSvc',
+                          'SCardSvr','ScDeviceEnum','WbioSrvc','SEMgrSvc','stisvc') {
             Set-ServiceStart $svc Manual
         }
 

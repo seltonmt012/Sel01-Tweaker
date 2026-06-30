@@ -7,6 +7,8 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $root 'src\lib\Common.ps1')
 . (Join-Path $root 'src\lib\Backup.ps1')
+. (Join-Path $root 'src\lib\Ui.ps1')
+Get-ChildItem (Join-Path $root 'src\modules') -Filter '*.ps1' | Sort-Object Name | ForEach-Object { . $_.FullName }
 
 $script:fail = 0
 function ok($n,$c){ if($c){ Write-Host "PASS $n" -ForegroundColor Green } else { Write-Host "FAIL $n" -ForegroundColor Red; $script:fail++ } }
@@ -15,6 +17,12 @@ $TestKey = 'HKCU:\Software\Sel01TweakerTest'
 if (Test-Path $TestKey) { Remove-Item $TestKey -Recurse -Force }
 
 ok 'mask bytes' ((((Build-PreferencesMask) | ForEach-Object { '{0:X2}' -f $_ }) -join ' ') -eq '90 12 03 80 10 00 00 00')
+
+ok 'bar full'  ((Get-Sel01Bar 100 10) -eq ([string]([char]0x2588) * 10))
+ok 'bar empty' ((Get-Sel01Bar 0 10)   -eq ([string]([char]0x2591) * 10))
+ok 'bar half filled 5' ((((Get-Sel01Bar 50 10).ToCharArray() | Where-Object { $_ -eq [char]0x2588 }) | Measure-Object).Count -eq 5)
+Initialize-Ui
+ok 'ui non-fancy when redirected' ($Global:Sel01Tweaker.UI.Fancy -eq $false)
 
 $Global:Sel01Tweaker.DryRun = $false
 $Global:Sel01Tweaker.Backup = [System.Collections.Generic.List[object]]::new()

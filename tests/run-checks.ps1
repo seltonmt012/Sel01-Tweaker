@@ -23,6 +23,8 @@ ok 'bar empty' ((Get-Sel01Bar 0 10)   -eq ([string]([char]0x2591) * 10))
 ok 'bar half filled 5' ((((Get-Sel01Bar 50 10).ToCharArray() | Where-Object { $_ -eq [char]0x2588 }) | Measure-Object).Count -eq 5)
 Initialize-Ui
 ok 'ui non-fancy when redirected' ($Global:Sel01Tweaker.UI.Fancy -eq $false)
+ok 'module Network exists' ([bool](Get-Command Invoke-Module-Network -ErrorAction SilentlyContinue))
+ok 'module Gpu exists'     ([bool](Get-Command Invoke-Module-Gpu     -ErrorAction SilentlyContinue))
 
 $Global:Sel01Tweaker.DryRun = $false
 $Global:Sel01Tweaker.Backup = [System.Collections.Generic.List[object]]::new()

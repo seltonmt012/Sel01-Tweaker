@@ -15,7 +15,8 @@ $marker = '#__SEL01TWEAKER_BUNDLE_INSERT__'
 # Order: shared libs first, then numbered modules.
 $parts = @(
     (Join-Path $src 'lib\Common.ps1'),
-    (Join-Path $src 'lib\Backup.ps1')
+    (Join-Path $src 'lib\Backup.ps1'),
+    (Join-Path $src 'lib\Ui.ps1')
 ) + (Get-ChildItem (Join-Path $src 'modules') -Filter '*.ps1' | Sort-Object Name | ForEach-Object FullName)
 
 $bundle = [System.Text.StringBuilder]::new()

@@ -41,6 +41,7 @@ if (-not (Get-Command Invoke-Module-Performance -ErrorAction SilentlyContinue)) 
     $root = $PSScriptRoot
     . (Join-Path $root 'lib\Common.ps1')
     . (Join-Path $root 'lib\Backup.ps1')
+    . (Join-Path $root 'lib\Ui.ps1')
     Get-ChildItem (Join-Path $root 'modules') -Filter '*.ps1' | Sort-Object Name | ForEach-Object { . $_.FullName }
 }
 
@@ -139,6 +140,8 @@ function Show-Overview {
         Write-Host '    6. Gaming        ' -ForegroundColor Cyan -NoNewline; Write-Host 'GameDVR aus; Game Mode + HAGS AN; MMCSS (audio-sicher)' -ForegroundColor Gray
         Write-Host '    7. FiveM         ' -ForegroundColor Cyan -NoNewline; Write-Host 'FSO/GPU/Prioritaet/Netzwerk (nur wenn FiveM installiert)' -ForegroundColor Gray
     }
+    Write-Host '       + Netzwerk    ' -ForegroundColor Cyan -NoNewline; Write-Host 'Nagle aus pro NIC fuer weniger Latenz (nur Gaming)' -ForegroundColor Gray
+    Write-Host '       + GPU         ' -ForegroundColor Cyan -NoNewline; Write-Host 'NVIDIA-Telemetrie aus (nur NVIDIA; Treiber unberuehrt)' -ForegroundColor Gray
     Write-Host '    8. Power (Desktop)' -ForegroundColor Cyan -NoNewline; Write-Host ' USB-Suspend/PCIe-ASPM aus (nur Desktop/Netzstrom)' -ForegroundColor Gray
     Write-Host '    9. Cleaner       ' -ForegroundColor Cyan -NoNewline; Write-Host 'Temp/Update-Cache/Papierkorb leeren' -ForegroundColor Gray
     Write-Host '   10. RAM-Cleaner   ' -ForegroundColor Cyan -NoNewline; Write-Host 'Speicher leeren + stuendlicher Hintergrund-Task' -ForegroundColor Gray
@@ -250,14 +253,22 @@ function Invoke-Pipeline {
         @{ Name='PowerPlan';     Skip=$false;                           Run={ Invoke-Module-PowerPlan } },
         @{ Name='Gaming';        Skip=$false;                           Run={ Invoke-Module-Gaming } },
         @{ Name='FiveM';         Skip=$Global:Sel01Tweaker.SkipFiveM;   Run={ Invoke-Module-FiveM } },
+        @{ Name='Network';       Skip=$false;                           Run={ Invoke-Module-Network } },
+        @{ Name='Gpu';           Skip=$false;                           Run={ Invoke-Module-Gpu } },
         @{ Name='Power';         Skip=$false;                           Run={ Invoke-Module-Power } },
         @{ Name='Cleaner';       Skip=$Global:Sel01Tweaker.SkipClean;   Run={ Invoke-Module-Cleaner } },
         @{ Name='RamCleaner';    Skip=$false;                           Run={ Invoke-Module-RamCleaner -NoTask:$Global:Sel01Tweaker.NoRamTask } }
     )
+    Initialize-Ui
+    $idx = 0
     foreach ($s in $steps) {
-        if ($s.Skip) { Write-Log "Skipping $($s.Name)" 'WARN'; continue }
+        $idx++
+        Set-UiModule -Index $idx -Total $steps.Count -Name $s.Name
+        if ($s.Skip) { Write-Log "Skipping $($s.Name)" 'WARN'; Complete-UiModule; continue }
         try { & $s.Run } catch { Write-Log "$($s.Name) crashed: $($_.Exception.Message)" 'ERROR' }
+        Complete-UiModule
     }
+    Complete-UiPanel
 
     Broadcast-SettingChange
     Restart-Explorer
@@ -314,6 +325,8 @@ function Start-Sel01Tweaker {
     $Global:Sel01Tweaker.TimerFix    = [bool]$TimerFix
     $Global:Sel01Tweaker.MsiMode     = [bool]$MsiMode
     $Global:Sel01Tweaker.NoRamTask   = [bool]$NoRamTask
+
+    Initialize-Ui
 
     # --- Revert -----------------------------------------------------------
     if ($Revert) { Initialize-Run; Invoke-Revert; return }

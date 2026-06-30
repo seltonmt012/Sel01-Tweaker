@@ -51,7 +51,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.2.0'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.3.0'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -124,6 +124,20 @@ function Write-Log {
         [ValidateSet('INFO','WARN','ERROR','OK','STEP')][string]$Level = 'INFO'
     )
     $line = "[$Level] $Message"
+    # File log always (full detail, regardless of overlay).
+    if ($Global:Sel01Tweaker.LogFile) {
+        Add-Content -Path $Global:Sel01Tweaker.LogFile -Value $line -Encoding UTF8
+    }
+    $ui = $Global:Sel01Tweaker.UI
+    # Overlay active AND inside a module: drive the panel, keep the screen clean.
+    if ($ui -and $ui.Fancy -and $ui.CurrentIdx -gt 0) {
+        $ui.ModuleStep++
+        if ($Level -eq 'WARN' -or $Level -eq 'ERROR') { $ui.LastMsg = "! $Message" }
+        elseif ($Level -ne 'STEP')                    { $ui.LastMsg = $Message }
+        Show-Panel
+        return
+    }
+    # Plain mode (non-fancy, or before/after the module loop).
     $color = switch ($Level) {
         'OK'    { 'Green' }
         'WARN'  { 'Yellow' }
@@ -132,9 +146,6 @@ function Write-Log {
         default { 'Gray' }
     }
     Write-Host $line -ForegroundColor $color
-    if ($Global:Sel01Tweaker.LogFile) {
-        Add-Content -Path $Global:Sel01Tweaker.LogFile -Value $line -Encoding UTF8
-    }
 }
 
 function Add-Change {
@@ -526,6 +537,147 @@ function Invoke-Revert {
 }
 
 
+# ----- bundled: Ui.ps1 -----
+# ============================================================================
+#  Sel01Tweaker - lib/Ui.ps1
+#  Modern console overlay: framed panel, per-module + overall progress bars,
+#  spinner, status line. Hard fallback to plain Write-Log when VT/ANSI is not
+#  available or output is redirected (irm|iex pipe, legacy console). Any render
+#  error latches Fancy=$false for the rest of the run.
+# ============================================================================
+
+# Per-module rough sub-step estimates (drives the per-module bar %). Approximate
+# is fine; the bar clamps to 99% until the module returns, then snaps to 100%.
+$Global:Sel01TweakerUiEst = @{
+    Debloat=6; RemoveAI=4; WinutilTweaks=20; Extra=15; Privacy=20; Performance=17;
+    PowerPlan=4; Gaming=15; Network=6; Gpu=6; FiveM=10; Power=6; Cleaner=8; RamCleaner=4
+}
+
+function Get-Sel01Bar {
+    <#  Pure: builds a fixed-width progress bar string from a percentage.  #>
+    param([int]$Pct,[int]$Width = 20)
+    if ($Pct -lt 0) { $Pct = 0 } elseif ($Pct -gt 100) { $Pct = 100 }
+    if ($Width -lt 1) { $Width = 1 }
+    $fill = [int][math]::Round($Width * $Pct / 100.0)
+    if ($fill -gt $Width) { $fill = $Width }
+    return ([string]([char]0x2588) * $fill) + ([string]([char]0x2591) * ($Width - $fill))
+}
+
+function Initialize-Ui {
+    <#  Decides UI.Fancy and tries to enable VT/ANSI. Idempotent.  #>
+    if (-not $Global:Sel01Tweaker.UI) {
+        $Global:Sel01Tweaker.UI = @{
+            Fancy=$false; AnchorRow=$null; Total=14; Done=0; Current=''
+            CurrentIdx=0; ModuleStep=0; ModuleEst=1; Spin=0; LastMsg=''
+        }
+    }
+    $ui = $Global:Sel01Tweaker.UI
+    $fancy = $true
+    try { if ([Console]::IsOutputRedirected) { $fancy = $false } } catch { $fancy = $false }
+    if ($fancy) {
+        try { $null = [Console]::WindowWidth } catch { $fancy = $false }
+    }
+    if ($fancy) {
+        try {
+            if (-not ([System.Management.Automation.PSTypeName]'Sel01Tweaker.Vt').Type) {
+                Add-Type -Namespace Sel01Tweaker -Name Vt -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError=true)]
+public static extern System.IntPtr GetStdHandle(int nStdHandle);
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError=true)]
+public static extern bool GetConsoleMode(System.IntPtr hConsoleHandle, out uint lpMode);
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError=true)]
+public static extern bool SetConsoleMode(System.IntPtr hConsoleHandle, uint dwMode);
+'@ -ErrorAction Stop
+            }
+            $h = [Sel01Tweaker.Vt]::GetStdHandle(-11)   # STD_OUTPUT_HANDLE
+            $mode = [uint32]0
+            if ([Sel01Tweaker.Vt]::GetConsoleMode($h, [ref]$mode)) {
+                [void][Sel01Tweaker.Vt]::SetConsoleMode($h, ($mode -bor 0x0004))  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            } else { $fancy = $false }
+        } catch { $fancy = $false }
+    }
+    $ui.Fancy = $fancy
+}
+
+function Set-UiModule {
+    <#  Called by the pipeline before each module runs.  #>
+    param([int]$Index,[int]$Total,[string]$Name)
+    $ui = $Global:Sel01Tweaker.UI
+    if (-not $ui) { return }
+    $ui.CurrentIdx = $Index; $ui.Total = $Total; $ui.Current = $Name
+    $ui.ModuleStep = 0; $ui.LastMsg = ''
+    $est = $Global:Sel01TweakerUiEst[$Name]
+    $ui.ModuleEst = if ($est) { [int]$est } else { 8 }
+    Show-Panel
+}
+
+function Complete-UiModule {
+    <#  Called by the pipeline after each module finishes.  #>
+    $ui = $Global:Sel01Tweaker.UI
+    if (-not $ui) { return }
+    $ui.Done++
+    $ui.ModuleStep = $ui.ModuleEst   # snap current bar to 100%
+    Show-Panel
+}
+
+function Complete-UiPanel {
+    <#  Park the cursor below the panel so the summary prints normally.  #>
+    $ui = $Global:Sel01Tweaker.UI
+    if (-not ($ui -and $ui.Fancy)) { return }
+    try {
+        if ($null -ne $ui.AnchorRow) { [Console]::SetCursorPosition(0, [math]::Min($ui.AnchorRow + 9, [Console]::BufferHeight - 1)) }
+    } catch {}
+    $ui.CurrentIdx = 0   # subsequent Write-Log lines print plainly under the panel
+    Write-Host ''
+}
+
+function Show-Panel {
+    <#  Redraws the framed panel in place at AnchorRow. Any failure latches
+        Fancy=$false so the rest of the run degrades to plain logging.  #>
+    $ui = $Global:Sel01Tweaker.UI
+    if (-not ($ui -and $ui.Fancy)) { return }
+    try {
+        $w = [Console]::WindowWidth - 2
+        if ($w -gt 58) { $w = 58 } elseif ($w -lt 40) { $w = 40 }
+        $inner = $w - 2
+        $barW = $inner - 8
+
+        $modPct = if ($ui.ModuleEst -gt 0) {
+            $p = [int][math]::Round(100.0 * $ui.ModuleStep / $ui.ModuleEst)
+            if ($p -gt 99 -and $ui.ModuleStep -lt $ui.ModuleEst) { 99 } else { $p }
+        } else { 0 }
+        $allPct = if ($ui.Total -gt 0) { [int][math]::Round(100.0 * $ui.Done / $ui.Total) } else { 0 }
+        $ui.Spin = ($ui.Spin + 1) % 4
+        $spin = @('|','/','-','\')[$ui.Spin]
+
+        function _pad([string]$s) { if ($s.Length -gt $inner) { $s = $s.Substring(0,$inner) }; return $s.PadRight($inner) }
+        $tl=[char]0x2554; $tr=[char]0x2557; $bl=[char]0x255A; $br=[char]0x255D
+        $hb=[char]0x2550; $vb=[char]0x2551; $ml=[char]0x2560; $mr=[char]0x2563
+        $top = "$tl$([string]$hb * $inner)$tr"
+        $sep = "$ml$([string]$hb * $inner)$mr"
+        $bot = "$bl$([string]$hb * $inner)$br"
+
+        $title  = "$vb$(_pad("  SEL01-TWEAKER   $($Global:Sel01Tweaker.Profile)   v$($Global:Sel01Tweaker.Version)"))$vb"
+        $modln  = "$vb$(_pad("  $spin  $($ui.CurrentIdx)/$($ui.Total)  $($ui.Current)"))$vb"
+        $modbar = "$vb$(_pad("  $(Get-Sel01Bar $modPct $barW)  $($modPct.ToString().PadLeft(3))%"))$vb"
+        $statln = "$vb$(_pad("  $($ui.LastMsg)"))$vb"
+        $allbar = "$vb$(_pad("  Gesamt $(Get-Sel01Bar $allPct $barW)  $($ui.Done)/$($ui.Total)"))$vb"
+
+        $lines = @($top,$title,$sep,$modln,$modbar,$statln,$sep,$allbar,$bot)
+
+        if ($null -eq $ui.AnchorRow) {
+            try { $ui.AnchorRow = [Console]::CursorTop } catch { $ui.AnchorRow = 0 }
+            $lines | ForEach-Object { [Console]::WriteLine($_) }
+        } else {
+            [Console]::SetCursorPosition(0, $ui.AnchorRow)
+            $lines | ForEach-Object { [Console]::WriteLine($_.PadRight([Console]::WindowWidth - 1)) }
+        }
+    } catch {
+        $ui.Fancy = $false   # latch: never try fancy rendering again this run
+    }
+}
+
+
 # ----- bundled: 01-Debloat.ps1 -----
 # ============================================================================
 #  Module 01 - Debloat  (orchestrates Raphire/Win11Debloat, MIT)
@@ -737,6 +889,15 @@ function Invoke-Module-Performance {
     Set-Reg 'HKCU:\Control Panel\Mouse' 'MouseSpeed'      String '0' -Note 'Mouse acceleration off'
     Set-Reg 'HKCU:\Control Panel\Mouse' 'MouseThreshold1' String '0'
     Set-Reg 'HKCU:\Control Panel\Mouse' 'MouseThreshold2' String '0'
+
+    # --- Foreground priority boost (classic "optimize for programs") -----
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl' 'Win32PrioritySeparation' DWord 26 -Note 'Foreground priority boost (Win32PrioritySeparation=26)'
+
+    # --- Less disk churn: NTFS last-access updates off (revertable) ------
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' 'NtfsDisableLastAccessUpdate' DWord 1 -Note 'NTFS last-access updates off'
+
+    # --- No accidental Sticky Keys prompt (5x Shift) ---------------------
+    Set-Reg 'HKCU:\Control Panel\Accessibility\StickyKeys' 'Flags' String '506' -Note 'Sticky-Keys 5x-Shift prompt off'
 }
 
 
@@ -1373,6 +1534,78 @@ function Invoke-Module-Cleaner {
 }
 
 
+# ----- bundled: 13-Network.ps1 -----
+# ============================================================================
+#  Module 13 - Network / Latency  (Gaming profile only)
+#  Disables Nagle's algorithm per active NIC (lower small-packet latency for
+#  games). Every write goes through Set-Reg -> snapshotted -> reversible.
+# ============================================================================
+
+function Invoke-Module-Network {
+    Write-Log '=== Module: Network / Latency (Nagle off) ===' 'STEP'
+
+    if ($Global:Sel01Tweaker.Profile -ne 'Gaming') {
+        Write-Log 'Network-Tweaks nur im Gaming-Profil, skip' 'INFO'; return
+    }
+    $base = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces'
+    if (-not (Test-Path $base)) { Write-Log 'Tcpip Interfaces fehlt, skip' 'WARN'; return }
+
+    Get-ChildItem $base -ErrorAction SilentlyContinue | ForEach-Object {
+        $guid = $_.PSChildName
+        if ($guid -notmatch '^\{[0-9a-fA-F-]+\}$') { return }   # skip non-GUID keys (e.g. "*")
+        $path = Join-Path $base $guid
+        $props = Get-ItemProperty -Path $path -ErrorAction SilentlyContinue
+        $dhcp  = "$($props.DhcpIPAddress)"
+        $stat  = "$($props.IPAddress)"
+        $hasIp = ($dhcp -and $dhcp -ne '0.0.0.0') -or ($stat -and $stat -ne '0.0.0.0')
+        if ($hasIp) {
+            Set-Reg $path 'TcpAckFrequency' DWord 1 -Note "Nagle off (TcpAckFrequency) auf $guid"
+            Set-Reg $path 'TCPNoDelay'      DWord 1
+        }
+    }
+}
+
+
+# ----- bundled: 14-Gpu.ps1 -----
+# ============================================================================
+#  Module 14 - GPU / NVIDIA telemetry  (only when an NVIDIA GPU is present)
+#  Disables NVIDIA telemetry/updater scheduled tasks via Disable-Task (recorded
+#  for -Revert). Drivers are never touched (no repack).
+# ============================================================================
+
+function Invoke-Module-Gpu {
+    Write-Log '=== Module: GPU / NVIDIA Telemetrie ===' 'STEP'
+
+    $nv = $false
+    try { $nv = (@(Get-CimInstance Win32_VideoController -ErrorAction Stop | Where-Object { $_.Name -match 'NVIDIA' }).Count) -gt 0 } catch {}
+    if (-not $nv) { Write-Log 'Keine NVIDIA-GPU erkannt, skip' 'INFO'; return }
+
+    $patterns = @('NvTmRep','NvTmMon','NvProfileUpdater','NvDriverUpdate','NvBackend','GFExperience')
+    $found = @()
+    try {
+        $csv = schtasks /Query /FO CSV /NH 2>$null
+        foreach ($row in $csv) {
+            if (-not $row) { continue }
+            $name = ($row -split '","')[0].Trim('"').Trim()
+            if (-not $name -or $name -eq 'TaskName') { continue }
+            foreach ($pat in $patterns) { if ($name -like "*$pat*") { $found += $name; break } }
+        }
+    } catch { Write-Log "Task-Liste fehlgeschlagen: $($_.Exception.Message)" 'WARN' }
+
+    $found = $found | Sort-Object -Unique
+    if ($found) { foreach ($t in $found) { Disable-Task $t } }
+    else        { Write-Log 'Keine klassischen NVIDIA-Telemetrie-Tasks (modernes NVIDIA App?)' 'INFO' }
+
+    # --- Telemetry opt-out flags (reversible; telemetry only, NOT driver/update) ---
+    # NVIDIA's documented "do not participate" RIDs. Harmless if the client isn't
+    # installed (Set-Reg creates the value; -Revert removes it again).
+    $fts = 'HKLM:\SOFTWARE\NVIDIA Corporation\Global\FTS'
+    Set-Reg $fts 'EnableRID44231' DWord 0 -Note 'NVIDIA telemetry opt-out (RID44231)'
+    Set-Reg $fts 'EnableRID64640' DWord 0
+    Set-Reg $fts 'EnableRID66610' DWord 0
+}
+
+
 
 # ---------------------------------------------------------------------------
 #  Load parts. When bundled into dist\Sel01Tweaker.ps1 the functions already
@@ -1382,6 +1615,7 @@ if (-not (Get-Command Invoke-Module-Performance -ErrorAction SilentlyContinue)) 
     $root = $PSScriptRoot
     . (Join-Path $root 'lib\Common.ps1')
     . (Join-Path $root 'lib\Backup.ps1')
+    . (Join-Path $root 'lib\Ui.ps1')
     Get-ChildItem (Join-Path $root 'modules') -Filter '*.ps1' | Sort-Object Name | ForEach-Object { . $_.FullName }
 }
 
@@ -1480,6 +1714,8 @@ function Show-Overview {
         Write-Host '    6. Gaming        ' -ForegroundColor Cyan -NoNewline; Write-Host 'GameDVR aus; Game Mode + HAGS AN; MMCSS (audio-sicher)' -ForegroundColor Gray
         Write-Host '    7. FiveM         ' -ForegroundColor Cyan -NoNewline; Write-Host 'FSO/GPU/Prioritaet/Netzwerk (nur wenn FiveM installiert)' -ForegroundColor Gray
     }
+    Write-Host '       + Netzwerk    ' -ForegroundColor Cyan -NoNewline; Write-Host 'Nagle aus pro NIC fuer weniger Latenz (nur Gaming)' -ForegroundColor Gray
+    Write-Host '       + GPU         ' -ForegroundColor Cyan -NoNewline; Write-Host 'NVIDIA-Telemetrie aus (nur NVIDIA; Treiber unberuehrt)' -ForegroundColor Gray
     Write-Host '    8. Power (Desktop)' -ForegroundColor Cyan -NoNewline; Write-Host ' USB-Suspend/PCIe-ASPM aus (nur Desktop/Netzstrom)' -ForegroundColor Gray
     Write-Host '    9. Cleaner       ' -ForegroundColor Cyan -NoNewline; Write-Host 'Temp/Update-Cache/Papierkorb leeren' -ForegroundColor Gray
     Write-Host '   10. RAM-Cleaner   ' -ForegroundColor Cyan -NoNewline; Write-Host 'Speicher leeren + stuendlicher Hintergrund-Task' -ForegroundColor Gray
@@ -1591,14 +1827,22 @@ function Invoke-Pipeline {
         @{ Name='PowerPlan';     Skip=$false;                           Run={ Invoke-Module-PowerPlan } },
         @{ Name='Gaming';        Skip=$false;                           Run={ Invoke-Module-Gaming } },
         @{ Name='FiveM';         Skip=$Global:Sel01Tweaker.SkipFiveM;   Run={ Invoke-Module-FiveM } },
+        @{ Name='Network';       Skip=$false;                           Run={ Invoke-Module-Network } },
+        @{ Name='Gpu';           Skip=$false;                           Run={ Invoke-Module-Gpu } },
         @{ Name='Power';         Skip=$false;                           Run={ Invoke-Module-Power } },
         @{ Name='Cleaner';       Skip=$Global:Sel01Tweaker.SkipClean;   Run={ Invoke-Module-Cleaner } },
         @{ Name='RamCleaner';    Skip=$false;                           Run={ Invoke-Module-RamCleaner -NoTask:$Global:Sel01Tweaker.NoRamTask } }
     )
+    Initialize-Ui
+    $idx = 0
     foreach ($s in $steps) {
-        if ($s.Skip) { Write-Log "Skipping $($s.Name)" 'WARN'; continue }
+        $idx++
+        Set-UiModule -Index $idx -Total $steps.Count -Name $s.Name
+        if ($s.Skip) { Write-Log "Skipping $($s.Name)" 'WARN'; Complete-UiModule; continue }
         try { & $s.Run } catch { Write-Log "$($s.Name) crashed: $($_.Exception.Message)" 'ERROR' }
+        Complete-UiModule
     }
+    Complete-UiPanel
 
     Broadcast-SettingChange
     Restart-Explorer
@@ -1655,6 +1899,8 @@ function Start-Sel01Tweaker {
     $Global:Sel01Tweaker.TimerFix    = [bool]$TimerFix
     $Global:Sel01Tweaker.MsiMode     = [bool]$MsiMode
     $Global:Sel01Tweaker.NoRamTask   = [bool]$NoRamTask
+
+    Initialize-Ui
 
     # --- Revert -----------------------------------------------------------
     if ($Revert) { Initialize-Run; Invoke-Revert; return }

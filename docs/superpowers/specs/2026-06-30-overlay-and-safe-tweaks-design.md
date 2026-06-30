@@ -122,23 +122,20 @@ Drivers are never touched (no repack). Each disabled task is recorded by `Disabl
 and re-enabled by `-Revert`. Runs in both profiles (telemetry removal suits Clean too),
 gated only on NVIDIA presence.
 
-### Mouse / input — added to `06-Gaming.ps1` (Gaming profile, HKCU)
+### Mouse / input — ALREADY DONE (no change)
 
-Disable "Enhance pointer precision" (mouse acceleration) for consistent aim:
-
-- `HKCU:\Control Panel\Mouse` `MouseSpeed` String `0`
-- `HKCU:\Control Panel\Mouse` `MouseThreshold1` String `0`
-- `HKCU:\Control Panel\Mouse` `MouseThreshold2` String `0`
-
-Gaming profile only. Reversible via `Set-Reg` string snapshots.
+`04-Performance.ps1` lines 44-48 already disable mouse acceleration
+(`MouseSpeed` / `MouseThreshold1` / `MouseThreshold2` = `0`) in **both** profiles.
+No new work — this item is already satisfied. Listed here so the plan does not
+duplicate it.
 
 ### Small QoL / perf — added to `04-Performance.ps1` (both profiles)
 
+Only genuinely new values (the existing module already does `MenuShowDelay=0` line 33
+and `StartupDelayInMSec=0` line 42 — do **not** re-add those):
+
 - `HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl` `Win32PrioritySeparation`
   DWord `26` (foreground boost, classic "optimize for programs").
-- `HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize`
-  `StartupDelayInMSec` DWord `0` (no artificial startup-app delay).
-- `HKCU:\Control Panel\Desktop` `MenuShowDelay` String `0` (snappier menus).
 - `HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem` `NtfsDisableLastAccessUpdate`
   DWord `1` (less disk churn). Written via `Set-Reg` so the prior system-managed value
   is snapshotted and restored on revert — no `fsutil` special-casing.
@@ -165,7 +162,7 @@ relaunch wiring is untouched. Required changes:
 | Overlay rendering | screen-only, latched fallback | n/a | none (degrades to plain) |
 | Nagle off (per NIC) | `Set-Reg` per GUID | yes | minimal |
 | NVIDIA telemetry tasks | `Disable-Task` | yes | none to gameplay |
-| Mouse accel off | `Set-Reg` HKCU | yes | feel change (intended) |
+| Mouse accel off | already in 04-Performance | yes | n/a (no new work) |
 | Win32PrioritySeparation | `Set-Reg` | yes | low |
 | Startup delay / menu delay | `Set-Reg` | yes | low |
 | NTFS LastAccess off | `Set-Reg` DWord | yes | low |

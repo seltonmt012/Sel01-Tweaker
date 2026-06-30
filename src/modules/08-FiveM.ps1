@@ -12,15 +12,17 @@
 
 function Get-FiveMExePaths {
     # Returns full paths of FiveM executables that actually exist on this box.
+    # IMPORTANT: modern FiveM runs the game as FiveM_b<build>_GTAProcess.exe (the
+    # legacy FiveM_GTAProcess.exe no longer exists), so the old code's per-app
+    # GPU/FSO tweaks never hit the running game. Match both.
     $found = [System.Collections.Generic.List[string]]::new()
     $base = Join-Path $env:LOCALAPPDATA 'FiveM'
-    $cand = @(Join-Path $base 'FiveM.exe')
-    if (Test-Path $base) {
-        # FiveM_GTAProcess.exe lives somewhere under the FiveM app dir; find it.
-        Get-ChildItem -Path $base -Filter 'FiveM_GTAProcess.exe' -Recurse -ErrorAction SilentlyContinue |
-            Select-Object -First 1 -ExpandProperty FullName | ForEach-Object { $cand += $_ }
-    }
-    foreach ($p in $cand) { if (Test-Path $p) { $found.Add($p) | Out-Null } }
+    if (-not (Test-Path $base)) { return $found }
+    $top = Join-Path $base 'FiveM.exe'
+    if (Test-Path $top) { $found.Add($top) | Out-Null }
+    Get-ChildItem -Path $base -Recurse -ErrorAction SilentlyContinue `
+                  -Include 'FiveM_GTAProcess.exe','FiveM_b*_GTAProcess.exe' |
+        ForEach-Object { $found.Add($_.FullName) | Out-Null }
     return $found
 }
 
@@ -76,16 +78,22 @@ function Invoke-Module-FiveM {
     # Raise the GPU "hung" timeout from 2s to 8s. NOT TdrLevel=0 (that would
     # remove crash recovery entirely). System-wide but safe + reversible.
     Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers' 'TdrDelay' DWord 8 -Note 'GPU TdrDelay 8s (FiveM crash guard)'
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers' 'TdrDdiDelay' DWord 8 -Note 'GPU TdrDdiDelay 8s (FiveM crash guard)'
     $Global:Sel01Tweaker.RebootNeeded = $true
 
-    # --- 2) Persistent process priority: Above Normal (6), never High/Realtime
-    foreach ($exe in 'FiveM.exe','FiveM_GTAProcess.exe') {
-        $po = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$exe\PerfOptions"
-        Set-Reg $po 'CpuPriorityClass' DWord 6 -Note "$exe -> Above Normal CPU priority"
+    # --- 2) Persistent process priority: Above Normal (6), never High/Realtime.
+    # IFEO matches on the exe LEAF name, so include the build-specific game
+    # process leaf(s) too (FiveM_b<build>_GTAProcess.exe) - else the running game
+    # never gets the priority.
+    $exes = Get-FiveMExePaths
+    $leaves = @('FiveM.exe','FiveM_GTAProcess.exe') +
+              ($exes | ForEach-Object { Split-Path $_ -Leaf }) | Select-Object -Unique
+    foreach ($leaf in $leaves) {
+        $po = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$leaf\PerfOptions"
+        Set-Reg $po 'CpuPriorityClass' DWord 6 -Note "$leaf -> Above Normal CPU priority"
     }
 
     # --- 3) Per-app tweaks that need the real exe path --------------------
-    $exes = Get-FiveMExePaths
     if ($exes.Count -eq 0) {
         Write-Log 'FiveM install not found in %LOCALAPPDATA%\FiveM - skipping per-app FSO/GPU tweaks.' 'WARN'
     } else {
@@ -114,6 +122,19 @@ function Invoke-Module-FiveM {
         Write-Log 'Network tweaks affect the TCP path only; FiveM gameplay is UDP.' 'INFO'
     }
 
-    # --- 5) Clear FiveM stutter caches (safe whitelist) ------------------
+    # --- 5) Page-file headroom: FiveM is memory-heavy and crashes/OOMs with the
+    # page file fully OFF. ONLY act when it's disabled - restore system-managed,
+    # never shrink/disable an existing one. Reboot to take effect.
+    $mm = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management'
+    $pf = Get-RegValueSafe -Path $mm -Name 'PagingFiles'
+    $pfEmpty = (-not $pf.Exists) -or (-not ($pf.Value | Where-Object { "$_".Trim() }))
+    if ($pfEmpty) {
+        Set-Reg $mm 'PagingFiles' MultiString @("$env:SystemDrive\pagefile.sys 0 0") -Note 'Page file -> system-managed (FiveM OOM guard)'
+        $Global:Sel01Tweaker.RebootNeeded = $true
+    } else {
+        Write-Log 'Page file vorhanden - unveraendert gelassen' 'INFO'
+    }
+
+    # --- 6) Clear FiveM stutter caches (safe whitelist) ------------------
     Clear-FiveMCache
 }

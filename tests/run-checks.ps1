@@ -28,6 +28,7 @@ ok 'module Gpu exists'     ([bool](Get-Command Invoke-Module-Gpu     -ErrorActio
 ok 'module Features exists'([bool](Get-Command Invoke-Module-Features -ErrorAction SilentlyContinue))
 ok 'feature helper exists' ([bool](Get-Command Disable-Sel01Feature  -ErrorAction SilentlyContinue))
 ok 'module AppxBloat exists'([bool](Get-Command Invoke-Module-AppxBloat -ErrorAction SilentlyContinue))
+ok 'module Win10 exists'   ([bool](Get-Command Invoke-Module-Win10 -ErrorAction SilentlyContinue))
 ok 'suspend-panel exists'  ([bool](Get-Command Suspend-Panel -ErrorAction SilentlyContinue))
 
 $Global:Sel01Tweaker.DryRun = $false

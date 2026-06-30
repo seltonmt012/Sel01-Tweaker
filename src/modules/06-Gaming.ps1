@@ -15,6 +15,7 @@ function Invoke-Module-Gaming {
     Set-Reg 'HKCU:\System\GameConfigStore' 'GameDVR_Enabled' DWord 0 -Note 'GameDVR off'
     Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR' 'AppCaptureEnabled' DWord 0
     Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR' 'AllowGameDVR' DWord 0
+    Set-Reg 'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowGameDVR' 'value' DWord 0
 
     # --- Game Mode + HAGS -------------------------------------------------
     if ($gaming) {
@@ -41,4 +42,11 @@ function Invoke-Module-Gaming {
     Set-Reg $games 'GPU Priority' DWord 8
     Set-Reg $games 'Priority'     DWord 6
     Set-Reg $games 'Scheduling Category' String 'High'
+    Set-Reg $games 'SFIO Priority'       String 'High'
+
+    # Win11 only: let DXGI upgrade legacy bitblt/flip-blt swapchains to flip model
+    # (lower latency for windowed games). No-op on Win10.
+    if ($Global:Sel01Tweaker.IsWin11) {
+        Set-Reg 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences' 'DirectXUserGlobalSettings' String 'SwapEffectUpgradeEnable=1;' -Note 'DirectX flip-model upgrade (Win11)'
+    }
 }

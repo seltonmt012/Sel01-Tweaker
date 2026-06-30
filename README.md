@@ -13,6 +13,20 @@ It runs Win11Debloat and RemoveWindowsAI for you, and reimplements the winutil
 tweaks and a WinMemoryCleaner-style RAM clean natively (no GPL code bundled).
 NOTICE.md has the licenses.
 
+## ⚡ Schnellster Start (1 Zeile)
+
+Open **PowerShell** (normal is fine — it asks for admin via UAC by itself) and paste:
+
+```powershell
+& ([scriptblock]::Create((irm https://github.com/seltonmt012/Sel01-Tweaker/releases/latest/download/Sel01Tweaker.ps1))) -Profile Gaming
+```
+
+That downloads the latest single-file build and runs the Gaming profile. Drop
+`-Profile Gaming` to get the menu, or use `-Profile Clean` / `-Revert` instead.
+
+Under the hood it self-elevates by relaunching itself as admin:
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File <script> -Profile Gaming`.
+
 ## Run it
 
 **Easiest:** double-click `START_Sel01-Tweaker.bat`, confirm the UAC prompt, and a

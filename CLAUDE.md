@@ -78,7 +78,8 @@ inlines libs+modules at the `#__SEL01TWEAKER_BUNDLE_INSERT__` marker to produce
 - `src/modules/01..16` - the stages, run in order by `Invoke-Pipeline`:
   01 Debloat **orchestrates** (downloads MIT upstream Win11Debloat, runs silently);
   16 AppxBloat is a **native** app-removal backstop (removes ~20 bloat Store apps by name,
-  download-independent; appx removal is NOT reverted - like Debloat);
+  download-independent; appx removal is NOT reverted - like Debloat); 17 Win10 is a
+  Win10-only block (gated `-not IsWin11`, no-ops on Win11);
   02 RemoveAI, 03 WinutilTweaks, 04 Performance, 06 Gaming, 09 Extra, 10 Privacy are
   **native** reimplementations (02 was orchestrated but upstream RemoveWindowsAI is
   chronically broken on Win11 26x00, so it's now native policy disables + Copilot-app

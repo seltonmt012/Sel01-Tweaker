@@ -51,7 +51,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.6.0'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.7.0'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -652,8 +652,8 @@ function Invoke-Revert {
 # Per-module rough sub-step estimates (drives the per-module bar %). Approximate
 # is fine; the bar clamps to 99% until the module returns, then snaps to 100%.
 $Global:Sel01TweakerUiEst = @{
-    Debloat=6; RemoveAI=8; AppxBloat=24; WinutilTweaks=24; Extra=15; Privacy=24; Performance=18;
-    PowerPlan=4; Gaming=15; Network=6; Gpu=6; Features=10; FiveM=10; Power=8; Cleaner=8; RamCleaner=4
+    Debloat=6; RemoveAI=8; AppxBloat=24; WinutilTweaks=24; Extra=15; Privacy=24; Win10=8; Performance=18;
+    PowerPlan=4; Gaming=18; Network=6; Gpu=6; Features=10; FiveM=12; Power=8; Cleaner=8; RamCleaner=4
 }
 
 function Get-Sel01Bar {
@@ -1149,6 +1149,7 @@ function Invoke-Module-Gaming {
     Set-Reg 'HKCU:\System\GameConfigStore' 'GameDVR_Enabled' DWord 0 -Note 'GameDVR off'
     Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR' 'AppCaptureEnabled' DWord 0
     Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR' 'AllowGameDVR' DWord 0
+    Set-Reg 'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowGameDVR' 'value' DWord 0
 
     # --- Game Mode + HAGS -------------------------------------------------
     if ($gaming) {
@@ -1175,6 +1176,13 @@ function Invoke-Module-Gaming {
     Set-Reg $games 'GPU Priority' DWord 8
     Set-Reg $games 'Priority'     DWord 6
     Set-Reg $games 'Scheduling Category' String 'High'
+    Set-Reg $games 'SFIO Priority'       String 'High'
+
+    # Win11 only: let DXGI upgrade legacy bitblt/flip-blt swapchains to flip model
+    # (lower latency for windowed games). No-op on Win10.
+    if ($Global:Sel01Tweaker.IsWin11) {
+        Set-Reg 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences' 'DirectXUserGlobalSettings' String 'SwapEffectUpgradeEnable=1;' -Note 'DirectX flip-model upgrade (Win11)'
+    }
 }
 
 
@@ -1352,15 +1360,17 @@ try{SetSystemFileCacheSize(new IntPtr(-1),new IntPtr(-1),0);}catch{}}
 
 function Get-FiveMExePaths {
     # Returns full paths of FiveM executables that actually exist on this box.
+    # IMPORTANT: modern FiveM runs the game as FiveM_b<build>_GTAProcess.exe (the
+    # legacy FiveM_GTAProcess.exe no longer exists), so the old code's per-app
+    # GPU/FSO tweaks never hit the running game. Match both.
     $found = [System.Collections.Generic.List[string]]::new()
     $base = Join-Path $env:LOCALAPPDATA 'FiveM'
-    $cand = @(Join-Path $base 'FiveM.exe')
-    if (Test-Path $base) {
-        # FiveM_GTAProcess.exe lives somewhere under the FiveM app dir; find it.
-        Get-ChildItem -Path $base -Filter 'FiveM_GTAProcess.exe' -Recurse -ErrorAction SilentlyContinue |
-            Select-Object -First 1 -ExpandProperty FullName | ForEach-Object { $cand += $_ }
-    }
-    foreach ($p in $cand) { if (Test-Path $p) { $found.Add($p) | Out-Null } }
+    if (-not (Test-Path $base)) { return $found }
+    $top = Join-Path $base 'FiveM.exe'
+    if (Test-Path $top) { $found.Add($top) | Out-Null }
+    Get-ChildItem -Path $base -Recurse -ErrorAction SilentlyContinue `
+                  -Include 'FiveM_GTAProcess.exe','FiveM_b*_GTAProcess.exe' |
+        ForEach-Object { $found.Add($_.FullName) | Out-Null }
     return $found
 }
 
@@ -1416,16 +1426,22 @@ function Invoke-Module-FiveM {
     # Raise the GPU "hung" timeout from 2s to 8s. NOT TdrLevel=0 (that would
     # remove crash recovery entirely). System-wide but safe + reversible.
     Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers' 'TdrDelay' DWord 8 -Note 'GPU TdrDelay 8s (FiveM crash guard)'
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers' 'TdrDdiDelay' DWord 8 -Note 'GPU TdrDdiDelay 8s (FiveM crash guard)'
     $Global:Sel01Tweaker.RebootNeeded = $true
 
-    # --- 2) Persistent process priority: Above Normal (6), never High/Realtime
-    foreach ($exe in 'FiveM.exe','FiveM_GTAProcess.exe') {
-        $po = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$exe\PerfOptions"
-        Set-Reg $po 'CpuPriorityClass' DWord 6 -Note "$exe -> Above Normal CPU priority"
+    # --- 2) Persistent process priority: Above Normal (6), never High/Realtime.
+    # IFEO matches on the exe LEAF name, so include the build-specific game
+    # process leaf(s) too (FiveM_b<build>_GTAProcess.exe) - else the running game
+    # never gets the priority.
+    $exes = Get-FiveMExePaths
+    $leaves = @('FiveM.exe','FiveM_GTAProcess.exe') +
+              ($exes | ForEach-Object { Split-Path $_ -Leaf }) | Select-Object -Unique
+    foreach ($leaf in $leaves) {
+        $po = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$leaf\PerfOptions"
+        Set-Reg $po 'CpuPriorityClass' DWord 6 -Note "$leaf -> Above Normal CPU priority"
     }
 
     # --- 3) Per-app tweaks that need the real exe path --------------------
-    $exes = Get-FiveMExePaths
     if ($exes.Count -eq 0) {
         Write-Log 'FiveM install not found in %LOCALAPPDATA%\FiveM - skipping per-app FSO/GPU tweaks.' 'WARN'
     } else {
@@ -1454,7 +1470,20 @@ function Invoke-Module-FiveM {
         Write-Log 'Network tweaks affect the TCP path only; FiveM gameplay is UDP.' 'INFO'
     }
 
-    # --- 5) Clear FiveM stutter caches (safe whitelist) ------------------
+    # --- 5) Page-file headroom: FiveM is memory-heavy and crashes/OOMs with the
+    # page file fully OFF. ONLY act when it's disabled - restore system-managed,
+    # never shrink/disable an existing one. Reboot to take effect.
+    $mm = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management'
+    $pf = Get-RegValueSafe -Path $mm -Name 'PagingFiles'
+    $pfEmpty = (-not $pf.Exists) -or (-not ($pf.Value | Where-Object { "$_".Trim() }))
+    if ($pfEmpty) {
+        Set-Reg $mm 'PagingFiles' MultiString @("$env:SystemDrive\pagefile.sys 0 0") -Note 'Page file -> system-managed (FiveM OOM guard)'
+        $Global:Sel01Tweaker.RebootNeeded = $true
+    } else {
+        Write-Log 'Page file vorhanden - unveraendert gelassen' 'INFO'
+    }
+
+    # --- 6) Clear FiveM stutter caches (safe whitelist) ------------------
     Clear-FiveMCache
 }
 
@@ -1981,6 +2010,47 @@ function Invoke-Module-AppxBloat {
 }
 
 
+# ----- bundled: 17-Win10.ps1 -----
+# ============================================================================
+#  Module 17 - Windows 10 specific  (only runs on Win10: -not IsWin11)
+#  Tweaks that are Win10-only or use Win10 paths a Win11-era tool would miss.
+#  All via Set-Reg / Set-ServiceStart -> snapshotted + reversible. No-ops on
+#  Win11 (the whole module is gated off). Researched, low-risk, both profiles.
+# ============================================================================
+
+function Invoke-Module-Win10 {
+    Write-Log '=== Module: Windows 10 specific ===' 'STEP'
+
+    if ($Global:Sel01Tweaker.IsWin11) {
+        Write-Log 'Windows 11 erkannt - Win10-Modul uebersprungen' 'INFO'
+        return
+    }
+
+    # --- Classic Cortana off ---------------------------------------------
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'AllowCortana' DWord 0 -Note 'Cortana off (Win10)'
+
+    # --- Bing / web results in Win10 Start search off --------------------
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'ConnectedSearchUseWeb' DWord 0 -Note 'Web search in Start off (Win10)'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'DisableWebSearch'      DWord 1
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search' 'BingSearchEnabled'       DWord 0
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search' 'CortanaConsent'          DWord 0
+
+    # --- Taskbar clutter: My People + sync-provider ads ------------------
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced\People' 'PeopleBand' DWord 0 -Note 'My People taskbar off (Win10)'
+    Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowSyncProviderNotifications' DWord 0 -Note 'Explorer OneDrive/Office ads off (Win10)'
+
+    # --- First-logon animation off (faster first sign-in) ----------------
+    Set-Reg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' 'EnableFirstLogonAnimation' DWord 0 -Note 'First-logon animation off (Win10)'
+
+    # --- Edge Legacy preload/prelaunch off (no-op if absent) -------------
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftEdge\Main' 'AllowPrelaunch' DWord 0 -Note 'Edge Legacy preload off (Win10)'
+    Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftEdge\TabPreloader' 'AllowTabPreloading' DWord 0
+
+    # --- Win10 diagnostics standard collector service off ----------------
+    Set-ServiceStart 'diagnosticshub.standardcollector.service' Disabled -Note 'Diagnostics collector off (Win10)'
+}
+
+
 
 # ---------------------------------------------------------------------------
 #  Load parts. When bundled into dist\Sel01Tweaker.ps1 the functions already
@@ -2203,6 +2273,7 @@ function Invoke-Pipeline {
         @{ Name='WinutilTweaks'; Skip=$false;                           Run={ Invoke-Module-WinutilTweaks } },
         @{ Name='Extra';         Skip=$false;                           Run={ Invoke-Module-Extra } },
         @{ Name='Privacy';       Skip=$false;                           Run={ Invoke-Module-Privacy } },
+        @{ Name='Win10';         Skip=$false;                           Run={ Invoke-Module-Win10 } },
         @{ Name='Performance';   Skip=$false;                           Run={ Invoke-Module-Performance } },
         @{ Name='PowerPlan';     Skip=$false;                           Run={ Invoke-Module-PowerPlan } },
         @{ Name='Gaming';        Skip=$false;                           Run={ Invoke-Module-Gaming } },

@@ -27,10 +27,14 @@ function Step($m){ Write-Host "==> $m" -ForegroundColor Cyan }
 # 1) bump version in the single source of truth
 $common = Join-Path $root 'src\lib\Common.ps1'
 $txt = [System.IO.File]::ReadAllText($common)
+if ($txt -notmatch "Version\s*=\s*'\d+\.\d+\.\d+'") { throw "Could not find Version = '...' in $common" }
 $new = [regex]::Replace($txt, "Version\s*=\s*'\d+\.\d+\.\d+'", "Version   = '$Version'", 1)
-if ($new -eq $txt) { throw "Could not find Version = '...' in $common" }
-[System.IO.File]::WriteAllText($common, $new, [System.Text.UTF8Encoding]::new($false))
-Step "version -> $Version"
+if ($new -eq $txt) {
+    Step "version already $Version (no bump needed)"
+} else {
+    [System.IO.File]::WriteAllText($common, $new, [System.Text.UTF8Encoding]::new($false))
+    Step "version -> $Version"
+}
 
 # 2) rebuild
 Step 'building dist'

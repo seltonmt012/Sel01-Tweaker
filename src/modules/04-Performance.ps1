@@ -46,4 +46,13 @@ function Invoke-Module-Performance {
     Set-Reg 'HKCU:\Control Panel\Mouse' 'MouseSpeed'      String '0' -Note 'Mouse acceleration off'
     Set-Reg 'HKCU:\Control Panel\Mouse' 'MouseThreshold1' String '0'
     Set-Reg 'HKCU:\Control Panel\Mouse' 'MouseThreshold2' String '0'
+
+    # --- Foreground priority boost (classic "optimize for programs") -----
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl' 'Win32PrioritySeparation' DWord 26 -Note 'Foreground priority boost (Win32PrioritySeparation=26)'
+
+    # --- Less disk churn: NTFS last-access updates off (revertable) ------
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' 'NtfsDisableLastAccessUpdate' DWord 1 -Note 'NTFS last-access updates off'
+
+    # --- No accidental Sticky Keys prompt (5x Shift) ---------------------
+    Set-Reg 'HKCU:\Control Panel\Accessibility\StickyKeys' 'Flags' String '506' -Note 'Sticky-Keys 5x-Shift prompt off'
 }

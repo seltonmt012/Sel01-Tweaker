@@ -106,6 +106,10 @@ function Invoke-Module-WinutilTweaks {
 
         # (Telemetry scheduled tasks are handled centrally + revertably in module 10.)
 
+        # OneDrive consumer autostart off (one fewer startup process). Reversible:
+        # -Revert re-creates the Run entry. Does not uninstall OneDrive.
+        Remove-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' 'OneDrive' -Note 'OneDrive autostart off (Clean)'
+
         # Disable hibernation (frees disk; also kills Fast Startup)
         if (-not $Global:Sel01Tweaker.DryRun) { powercfg /hibernate off 2>$null | Out-Null }
         Add-Change 'Hibernation off'

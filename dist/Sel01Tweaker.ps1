@@ -51,7 +51,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.7.1'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.7.2'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -126,9 +126,12 @@ function Write-Log {
         [ValidateSet('INFO','WARN','ERROR','OK','STEP')][string]$Level = 'INFO'
     )
     $line = "[$Level] $Message"
-    # File log always (full detail, regardless of overlay).
+    # File log always (full detail, regardless of overlay). Never let a transient
+    # file lock (e.g. an external tool's child process still holding a handle)
+    # throw raw red - logging must never crash the run.
     if ($Global:Sel01Tweaker.LogFile) {
-        Add-Content -Path $Global:Sel01Tweaker.LogFile -Value $line -Encoding UTF8
+        try { Add-Content -Path $Global:Sel01Tweaker.LogFile -Value $line -Encoding UTF8 -ErrorAction Stop }
+        catch { try { [System.IO.File]::AppendAllText($Global:Sel01Tweaker.LogFile, "$line`r`n") } catch {} }
     }
     $ui = $Global:Sel01Tweaker.UI
     # Panel suspended (external tool running): file log only, no screen output.
@@ -499,8 +502,11 @@ function Invoke-Remote {
         # paint over the overlay - park the panel and funnel every stream to the
         # run log, then redraw a fresh panel.
         Suspend-Panel
-        $log = $Global:Sel01Tweaker.LogFile
-        if ($log) { & $sb @Params *>> $log } else { & $sb @Params *> $null }
+        # Redirect to a SEPARATE file, never the main log: the external tool can
+        # spawn child processes (winget/DISM) that keep the redirected handle open,
+        # which would lock our own Write-Log out of the main log file.
+        $ext = if ($Global:Sel01Tweaker.LogFile) { $Global:Sel01Tweaker.LogFile -replace '\.txt$','-extern.txt' } else { $null }
+        if ($ext) { & $sb @Params *>> $ext } else { & $sb @Params *> $null }
         Resume-Panel
         Write-Log "$Name finished" 'OK'
         Add-Change "$Name applied ($shown)"
@@ -1013,6 +1019,10 @@ function Invoke-Module-WinutilTweaks {
         }
 
         # (Telemetry scheduled tasks are handled centrally + revertably in module 10.)
+
+        # OneDrive consumer autostart off (one fewer startup process). Reversible:
+        # -Revert re-creates the Run entry. Does not uninstall OneDrive.
+        Remove-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' 'OneDrive' -Note 'OneDrive autostart off (Clean)'
 
         # Disable hibernation (frees disk; also kills Fast Startup)
         if (-not $Global:Sel01Tweaker.DryRun) { powercfg /hibernate off 2>$null | Out-Null }
@@ -1668,7 +1678,13 @@ function Invoke-Module-Privacy {
         '\Microsoft\Windows\NetTrace\GatherNetworkInfo',
         '\Microsoft\Windows\PI\Sqm-Tasks',
         '\Microsoft\Office\OfficeTelemetryAgentLogOn',
-        '\Microsoft\Office\OfficeTelemetryAgentFallBack'
+        '\Microsoft\Office\OfficeTelemetryAgentFallBack',
+        '\Microsoft\Windows\Application Experience\PcaWallpaperAppDetect',
+        '\Microsoft\Windows\ApplicationData\appuriverifierdaily',
+        '\Microsoft\Windows\ApplicationData\appuriverifierinstall',
+        '\Microsoft\Windows\Flighting\FeatureConfig\ReconcileFeatures',
+        '\Microsoft\Windows\Flighting\FeatureConfig\UsageDataReporting',
+        '\Microsoft\Windows\Flighting\OneSettings\RefreshCache'
     )) { Disable-Task $t }
     Add-Change 'Telemetry/feedback scheduled tasks disabled (revertable)'
 
@@ -1680,7 +1696,8 @@ function Invoke-Module-Privacy {
             '\Microsoft\Windows\Speech\SpeechModelDownloadTask',
             '\Microsoft\Windows\Mobile Broadband Accounts\MNO Metadata Parser',
             '\Microsoft\Windows\Shell\FamilySafetyMonitor',
-            '\Microsoft\Windows\Shell\FamilySafetyRefreshTask'
+            '\Microsoft\Windows\Shell\FamilySafetyRefreshTask',
+            '\Microsoft\Windows\Workplace Join\Automatic-Device-Join'
         )) { Disable-Task $t }
     }
 }

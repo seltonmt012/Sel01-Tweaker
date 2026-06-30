@@ -102,7 +102,13 @@ function Invoke-Module-Privacy {
         '\Microsoft\Windows\NetTrace\GatherNetworkInfo',
         '\Microsoft\Windows\PI\Sqm-Tasks',
         '\Microsoft\Office\OfficeTelemetryAgentLogOn',
-        '\Microsoft\Office\OfficeTelemetryAgentFallBack'
+        '\Microsoft\Office\OfficeTelemetryAgentFallBack',
+        '\Microsoft\Windows\Application Experience\PcaWallpaperAppDetect',
+        '\Microsoft\Windows\ApplicationData\appuriverifierdaily',
+        '\Microsoft\Windows\ApplicationData\appuriverifierinstall',
+        '\Microsoft\Windows\Flighting\FeatureConfig\ReconcileFeatures',
+        '\Microsoft\Windows\Flighting\FeatureConfig\UsageDataReporting',
+        '\Microsoft\Windows\Flighting\OneSettings\RefreshCache'
     )) { Disable-Task $t }
     Add-Change 'Telemetry/feedback scheduled tasks disabled (revertable)'
 
@@ -114,7 +120,8 @@ function Invoke-Module-Privacy {
             '\Microsoft\Windows\Speech\SpeechModelDownloadTask',
             '\Microsoft\Windows\Mobile Broadband Accounts\MNO Metadata Parser',
             '\Microsoft\Windows\Shell\FamilySafetyMonitor',
-            '\Microsoft\Windows\Shell\FamilySafetyRefreshTask'
+            '\Microsoft\Windows\Shell\FamilySafetyRefreshTask',
+            '\Microsoft\Windows\Workplace Join\Automatic-Device-Join'
         )) { Disable-Task $t }
     }
 }

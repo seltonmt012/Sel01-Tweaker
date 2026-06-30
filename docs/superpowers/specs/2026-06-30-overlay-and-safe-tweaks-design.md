@@ -122,6 +122,13 @@ Drivers are never touched (no repack). Each disabled task is recorded by `Disabl
 and re-enabled by `-Revert`. Runs in both profiles (telemetry removal suits Clean too),
 gated only on NVIDIA presence.
 
+The driver/`NVIDIA App` **self-update** task is deliberately left alone — disabling
+updates would cross the security invariant. On modern "NVIDIA App" systems the classic
+telemetry tasks no longer exist, so the module also sets NVIDIA's documented telemetry
+opt-out flags under `HKLM:\SOFTWARE\NVIDIA Corporation\Global\FTS`
+(`EnableRID44231` / `EnableRID64640` / `EnableRID66610` = `0`) via `Set-Reg`. These are
+telemetry-only, harmless if the client is absent, and reversible.
+
 ### Mouse / input — ALREADY DONE (no change)
 
 `04-Performance.ps1` lines 44-48 already disable mouse acceleration

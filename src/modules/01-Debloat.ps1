@@ -32,7 +32,7 @@ function Invoke-Module-Debloat {
             DisableWidgets      = $true
             DisableCopilot      = $true
             DisableRecall       = $true
-            DisableChat         = $true
+            HideChat            = $true
             DisableDesktopSpotlight = $true
         }
     }

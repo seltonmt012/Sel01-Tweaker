@@ -108,7 +108,18 @@ assigned address (`DhcpIPAddress` or `IPAddress`):
 Each write is a normal `Set-Reg` (per-GUID snapshot) → fully reversible. Skipped for the
 Clean profile. Impact: marginally more small-packet bandwidth, lower in-game latency.
 
-### New module `src/modules/14-Gpu.ps1` (only if NVIDIA GPU present)
+### New module `src/modules/14-Gpu.ps1` (NVIDIA and/or AMD)
+
+Detects vendor(s) from `Win32_VideoController`. NVIDIA and AMD each get their own
+branch; only the detected vendor's branch runs. A shared `Disable-Sel01GpuTasks`
+helper disables tasks by name pattern.
+
+**AMD branch:** disables telemetry/diagnostic/auto-update tasks
+(`AMD*Telemetry`, `AMD Crash`, `AMDLink`, `AMDInstallLauncher`, `AMDRyzenMasterSDK`)
+but NOT `StartCN` (Radeon autostart) so boot-time fan curves / overclock profiles
+keep working. Sets reversible Radeon "User Experience / survey" opt-out reg flags.
+
+**NVIDIA branch** (original):
 
 Detect NVIDIA via `Get-CimInstance Win32_VideoController` name match. If present,
 enumerate scheduled tasks and `Disable-Task` those whose name matches the NVIDIA

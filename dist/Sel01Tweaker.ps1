@@ -51,7 +51,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.7.0'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.7.1'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -1358,6 +1358,12 @@ try{SetSystemFileCacheSize(new IntPtr(-1),new IntPtr(-1),0);}catch{}}
 #  below only help the connection/handshake/download path, NOT in-game ping.
 # ============================================================================
 
+function Test-FiveMInstalled {
+    # INSTALLED check (not running): the FiveM client folder exists in the user's
+    # LOCALAPPDATA. FiveM does NOT need to be running for the tweaks to apply.
+    Test-Path (Join-Path $env:LOCALAPPDATA 'FiveM')
+}
+
 function Get-FiveMExePaths {
     # Returns full paths of FiveM executables that actually exist on this box.
     # IMPORTANT: modern FiveM runs the game as FiveM_b<build>_GTAProcess.exe (the
@@ -1421,6 +1427,14 @@ function Invoke-Module-FiveM {
         Write-Log 'FiveM module runs only in Gaming profile - skipped.' 'INFO'
         return
     }
+
+    # Gate EVERYTHING below on FiveM being installed (just installed, not running).
+    # No FiveM on the box -> none of these FiveM-specific tweaks make sense.
+    if (-not (Test-FiveMInstalled)) {
+        Write-Log 'FiveM nicht installiert (%LOCALAPPDATA%\FiveM fehlt) - FiveM-Tweaks uebersprungen' 'INFO'
+        return
+    }
+    Write-Log 'FiveM installiert erkannt - wende FiveM-Tweaks an' 'INFO'
 
     # --- 1) GPU TDR delay: prevent FiveM streaming GPU-reset crashes ------
     # Raise the GPU "hung" timeout from 2s to 8s. NOT TdrLevel=0 (that would

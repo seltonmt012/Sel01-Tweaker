@@ -28,6 +28,7 @@ param(
     [switch]$SkipClean,
     [switch]$TimerFix,
     [switch]$MsiMode,
+    [switch]$ShaderClean,
     [switch]$NoRamTask,
     [switch]$DryRun
 )
@@ -51,7 +52,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.8.1'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.9.0'   # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
@@ -1150,6 +1151,65 @@ function Invoke-Module-PowerPlan {
 #  HAGS needs WDDM 2.7+ driver and a reboot to take effect.
 # ============================================================================
 
+function Get-Sel01GtaVExePaths {
+    <#  Finds installed GTA V executables (Rockstar / Steam / Epic, Legacy +
+        Enhanced). Module 08 only ever covered the FiveM exes, so a plain
+        GTA V install never got the per-app FSO / high-perf-GPU flags.
+        Returns full paths that really exist; empty array when GTA V is absent. #>
+    $dirs = [System.Collections.Generic.List[string]]::new()
+
+    # 1) Rockstar registry: enumerate every product subkey and take any
+    #    InstallFolder* value (names differ per edition/store).
+    foreach ($rs in @('HKLM:\SOFTWARE\WOW6432Node\Rockstar Games','HKLM:\SOFTWARE\Rockstar Games')) {
+        if (-not (Test-Path $rs)) { continue }
+        Get-ChildItem $rs -ErrorAction SilentlyContinue |
+            Where-Object { $_.PSChildName -match 'Grand Theft Auto V|GTAV' } |
+            ForEach-Object {
+                $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+                if (-not $props) { return }
+                $props.PSObject.Properties |
+                    Where-Object { $_.Name -like 'InstallFolder*' -and "$($_.Value)".Trim() } |
+                    ForEach-Object { $dirs.Add("$($_.Value)") | Out-Null }
+            }
+    }
+
+    # 2) Steam libraries (libraryfolders.vdf lists every library drive).
+    try {
+        $steam = (Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam' -Name InstallPath -ErrorAction Stop).InstallPath
+        $vdf   = Join-Path $steam 'steamapps\libraryfolders.vdf'
+        $libs  = @($steam)
+        if (Test-Path $vdf) {
+            Select-String -Path $vdf -Pattern '"path"\s+"(.+?)"' -ErrorAction SilentlyContinue |
+                ForEach-Object { $libs += $_.Matches[0].Groups[1].Value -replace '\\\\','\' }
+        }
+        foreach ($l in ($libs | Select-Object -Unique)) {
+            $dirs.Add((Join-Path $l 'steamapps\common\Grand Theft Auto V')) | Out-Null
+        }
+    } catch {}
+
+    # 3) Epic manifests (JSON, one .item per installed game).
+    $man = Join-Path $env:ProgramData 'Epic\EpicGamesLauncher\Data\Manifests'
+    if (Test-Path $man) {
+        Get-ChildItem $man -Filter '*.item' -ErrorAction SilentlyContinue | ForEach-Object {
+            try {
+                $j = Get-Content $_.FullName -Raw -ErrorAction Stop | ConvertFrom-Json
+                if ("$($j.DisplayName)" -match 'Grand Theft Auto' -and $j.InstallLocation) {
+                    $dirs.Add("$($j.InstallLocation)") | Out-Null
+                }
+            } catch {}
+        }
+    }
+
+    $found = [System.Collections.Generic.List[string]]::new()
+    foreach ($d in ($dirs | Where-Object { $_ } | Select-Object -Unique)) {
+        foreach ($exe in @('GTA5.exe','GTA5_Enhanced.exe')) {
+            $p = Join-Path $d $exe
+            if (Test-Path -LiteralPath $p) { $found.Add($p) | Out-Null }
+        }
+    }
+    return @($found | Select-Object -Unique)
+}
+
 function Invoke-Module-Gaming {
     Write-Log '=== Module: Gaming tweaks ===' 'STEP'
 
@@ -1192,6 +1252,27 @@ function Invoke-Module-Gaming {
     # (lower latency for windowed games). No-op on Win10.
     if ($Global:Sel01Tweaker.IsWin11) {
         Set-Reg 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences' 'DirectXUserGlobalSettings' String 'SwapEffectUpgradeEnable=1;' -Note 'DirectX flip-model upgrade (Win11)'
+    }
+
+    # --- Per-app flags for a plain GTA V install (Gaming profile) ---------
+    # Same two surgical HKCU flags module 08 applies to the FiveM exes:
+    #   FSO off  -> real exclusive fullscreen (less latency/tearing)
+    #   GpuPreference=2 -> high-perf GPU (matters on hybrid-graphics laptops)
+    # Both are per-exe and fully reverted via Set-Reg snapshots.
+    if ($gaming) {
+        $gta = Get-Sel01GtaVExePaths
+        if (-not $gta -or $gta.Count -eq 0) {
+            Write-Log 'GTA V nicht gefunden (Rockstar/Steam/Epic) - GTA-Per-App-Tweaks uebersprungen' 'INFO'
+        } else {
+            foreach ($path in $gta) {
+                $leaf = Split-Path $path -Leaf
+                Set-Reg 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers' `
+                        $path String '~ DISABLEDXMAXIMIZEDWINDOWEDMODE' -Note "FSO off for $leaf"
+                Set-Reg 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences' `
+                        $path String 'GpuPreference=2;' -Note "High-Perf GPU for $leaf"
+            }
+            Add-Change ("GTA V: FSO aus + High-Perf-GPU ({0} exe)" -f $gta.Count)
+        }
     }
 }
 
@@ -1734,45 +1815,58 @@ function Invoke-Module-Privacy {
 
 # ----- bundled: 11-Power.ps1 -----
 # ============================================================================
-#  Module 11 - Power tweaks  (Desktop on AC only)
-#  Latency/throughput power settings that HURT laptops/battery, so they are
-#  applied ONLY on a desktop running on AC. Applied to the active power scheme
-#  (the Ultimate Performance plan set in module 05), so -Revert removes them
-#  together with that plan (reset to Balanced).
+#  Module 11 - Power tweaks  (AC only; device-class gated)
+#  Two tiers, because they are NOT equally risky on portables:
+#    * Battery       -> nothing at all (every tweak here costs runtime).
+#    * Laptop on AC  -> CPU power throttling off only. That is exactly where it
+#                       helps most (aggressive OEM power management clocks the
+#                       CPU down mid-game); it costs idle power, not devices.
+#    * Desktop on AC -> the above PLUS the device-level powercfg settings
+#                       (USB selective suspend, PCIe ASPM, disk no-sleep),
+#                       which would drain a battery and can upset docked/
+#                       hybrid laptop hardware.
+#  powercfg settings apply to the active scheme (the Ultimate Performance plan
+#  from module 05), so -Revert removes them with that plan (reset to Balanced).
 # ============================================================================
 
 function Invoke-Module-Power {
-    Write-Log '=== Module: Power tweaks (Desktop/AC only) ===' 'STEP'
+    Write-Log '=== Module: Power tweaks (nur Netzstrom) ===' 'STEP'
 
     Get-Sel01PowerInfo
-    if ($Global:Sel01Tweaker.IsLaptop -or $Global:Sel01Tweaker.OnBattery) {
-        Write-Log ("Laptop={0} Akku={1} -> Power-Tweaks uebersprungen (geraete-/akku-sicher)" -f `
-            $Global:Sel01Tweaker.IsLaptop, $Global:Sel01Tweaker.OnBattery) 'WARN'
+    if ($Global:Sel01Tweaker.OnBattery) {
+        Write-Log 'Akkubetrieb -> Power-Tweaks komplett uebersprungen (akku-sicher)' 'WARN'
         return
     }
+    $desktop = -not $Global:Sel01Tweaker.IsLaptop
 
-    # GUIDs: USB selective suspend setting, PCIe ASPM setting.
-    $usbSub = '2a737441-1930-4402-8d77-b2bebba308a3'; $usbSet = '48e6b7a6-50f5-4782-a5d4-53bb8f07e226'
-    $pciSub = '501a4d13-42af-4429-9fd1-a8218c268e20'; $pciSet = 'ee12f906-d277-404b-b6da-e5fa1a576df5'
-    if ($Global:Sel01Tweaker.DryRun) {
-        Write-Log 'DRYRUN: USB selective suspend off, PCIe ASPM off, disk-timeout 0 (AC)' 'INFO'
+    if ($desktop) {
+        # GUIDs: USB selective suspend setting, PCIe ASPM setting.
+        $usbSub = '2a737441-1930-4402-8d77-b2bebba308a3'; $usbSet = '48e6b7a6-50f5-4782-a5d4-53bb8f07e226'
+        $pciSub = '501a4d13-42af-4429-9fd1-a8218c268e20'; $pciSet = 'ee12f906-d277-404b-b6da-e5fa1a576df5'
+        if ($Global:Sel01Tweaker.DryRun) {
+            Write-Log 'DRYRUN: USB selective suspend off, PCIe ASPM off, disk-timeout 0 (AC)' 'INFO'
+        } else {
+          try {
+            powercfg /SETACVALUEINDEX SCHEME_CURRENT $usbSub $usbSet 0 2>$null | Out-Null   # USB suspend off
+            powercfg /SETACVALUEINDEX SCHEME_CURRENT $pciSub $pciSet 0 2>$null | Out-Null   # PCIe ASPM off
+            powercfg /change disk-timeout-ac 0 2>$null | Out-Null                            # disk never sleeps
+            powercfg /SETACTIVE SCHEME_CURRENT 2>$null | Out-Null
+            Write-Log 'USB selective suspend off, PCIe ASPM off, disk no-sleep (AC)' 'OK'
+            Add-Change 'Power: USB-suspend/PCIe-ASPM off, disk no-sleep (Desktop/AC)'
+            Write-Log 'Revert: entfernt sich mit dem Power-Plan (-Revert setzt auf Balanced).' 'INFO'
+          } catch {
+            Write-Log "Power tweaks failed: $($_.Exception.Message)" 'WARN'
+          }
+        }
     } else {
-      try {
-        powercfg /SETACVALUEINDEX SCHEME_CURRENT $usbSub $usbSet 0 2>$null | Out-Null   # USB suspend off
-        powercfg /SETACVALUEINDEX SCHEME_CURRENT $pciSub $pciSet 0 2>$null | Out-Null   # PCIe ASPM off
-        powercfg /change disk-timeout-ac 0 2>$null | Out-Null                            # disk never sleeps
-        powercfg /SETACTIVE SCHEME_CURRENT 2>$null | Out-Null
-        Write-Log 'USB selective suspend off, PCIe ASPM off, disk no-sleep (AC)' 'OK'
-        Add-Change 'Power: USB-suspend/PCIe-ASPM off, disk no-sleep (Desktop/AC)'
-        Write-Log 'Revert: entfernt sich mit dem Power-Plan (-Revert setzt auf Balanced).' 'INFO'
-      } catch {
-        Write-Log "Power tweaks failed: $($_.Exception.Message)" 'WARN'
-      }
+        Write-Log 'Laptop am Netz -> Geraete-Power-Tweaks (USB/PCIe/Disk) uebersprungen' 'INFO'
     }
 
-    # --- CPU power throttling off (Desktop/AC only - raises idle power so it
-    #     is correctly gated by the laptop/battery guard above). Reversible. --
-    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling' 'PowerThrottlingOff' DWord 1 -Note 'CPU power throttling off (Desktop/AC)'
+    # --- CPU power throttling off (AC only; laptops included - this is where
+    #     Windows throttles hardest). Costs idle power, so battery is excluded
+    #     by the guard above. Reversible. ---------------------------------
+    $where = if ($desktop) { 'Desktop/AC' } else { 'Laptop am Netz' }
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling' 'PowerThrottlingOff' DWord 1 -Note "CPU power throttling off ($where)"
     $Global:Sel01Tweaker.RebootNeeded = $true
 
     # --- Opt-in: Win11 global timer resolution (fixes micro-stutter) -----
@@ -1784,7 +1878,11 @@ function Invoke-Module-Power {
     }
 
     # --- Opt-in: GPU MSI mode (lower interrupt latency) ------------------
-    if ($Global:Sel01Tweaker.MsiMode) {
+    # Desktop only, unchanged: on hybrid-graphics laptops the display device
+    # enumerated here can be the iGPU, and MSI changes there are riskier.
+    if ($Global:Sel01Tweaker.MsiMode -and -not $desktop) {
+        Write-Log 'MSI mode uebersprungen (nur Desktop - Hybrid-Grafik im Laptop)' 'INFO'
+    } elseif ($Global:Sel01Tweaker.MsiMode) {
         try {
             $gpu = Get-PnpDevice -Class Display -Status OK -ErrorAction Stop | Select-Object -First 1
             if ($gpu) {
@@ -2165,6 +2263,92 @@ function Invoke-Module-Services {
 }
 
 
+# ----- bundled: 19-ShaderCache.ps1 -----
+# ============================================================================
+#  Module 19 - GPU shader cache cleaner  (OPT-IN: -ShaderClean, or menu entry)
+#  Deletes the compiled shader caches of the installed GPU vendor + the two
+#  Windows/DirectX ones. Drivers rebuild them automatically.
+#
+#  WHY opt-in and not part of the normal run: clearing costs a one-time shader
+#  recompile on the next game start (GTA V ~1-2 min of stutter). It is a REPAIR
+#  step for "stutter/artefacts after a driver or Windows update", not a
+#  per-run optimisation. The cache exists to make things faster.
+#
+#  Not registry -> nothing to revert (same class as module 12 Cleaner).
+# ============================================================================
+
+function Get-Sel01ShaderCachePaths {
+    <#  Returns the shader-cache directories that EXIST on this machine.
+        Vendor gating is implicit: an AMD box simply has no NVIDIA\DXCache.
+        Only cache dirs are listed - never a driver/program directory.  #>
+    $la = $env:LOCALAPPDATA
+    if (-not $la) { return @() }
+    $candidates = @(
+        (Join-Path $la 'NVIDIA\DXCache'),                      # NVIDIA DirectX
+        (Join-Path $la 'NVIDIA\GLCache'),                      # NVIDIA OpenGL/Vulkan
+        (Join-Path $la 'NVIDIA Corporation\NV_Cache'),         # NVIDIA (legacy)
+        (Join-Path $la 'AMD\DxCache'),                         # AMD DirectX
+        (Join-Path $la 'AMD\DxcCache'),                        # AMD DXC
+        (Join-Path $la 'AMD\GLCache'),                         # AMD OpenGL
+        (Join-Path $la 'AMD\VkCache'),                         # AMD Vulkan
+        (Join-Path $la 'Intel\ShaderCache'),                   # Intel (iGPU/Arc)
+        (Join-Path $la 'D3DSCache'),                           # DirectX (per-user)
+        (Join-Path $la 'Microsoft\DirectX Shader Cache')       # Windows DX cache
+    )
+    return @($candidates | Where-Object { Test-Path -LiteralPath $_ })
+}
+
+function Clear-Sel01ShaderCache {
+    <#  Empties each cache dir CONTENT-wise (keeps the dir itself - drivers
+        expect it to exist). Files locked by a running game are skipped.
+        Honours -DryRun. Returns freed bytes.  #>
+    $paths = Get-Sel01ShaderCachePaths
+    if (-not $paths -or $paths.Count -eq 0) {
+        Write-Log 'Keine Shader-Caches gefunden (kein NVIDIA/AMD/Intel-Cache angelegt)' 'INFO'
+        return 0
+    }
+
+    # A running game re-creates shaders while we delete -> half-cleaned cache.
+    # Warn (don't abort): locked files are skipped anyway.
+    $busy = Get-Process -Name 'GTA5','GTA5_Enhanced','FiveM','FiveM_GTAProcess','RDR2','csgo','cs2' -ErrorAction SilentlyContinue
+    if ($busy) { Write-Log 'Ein Spiel laeuft - Shader-Clean ist unvollstaendig (erst Spiel schliessen)' 'WARN' }
+
+    $freed = 0.0
+    foreach ($p in $paths) {
+        $size = (Get-ChildItem -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue |
+                 Measure-Object Length -Sum).Sum
+        if (-not $size) { continue }
+        $short = $p.Replace($env:LOCALAPPDATA, '%LOCALAPPDATA%')
+
+        if ($Global:Sel01Tweaker.DryRun) {
+            Write-Log ("DRYRUN shader-cache {0} (~{1} MB)" -f $short, [math]::Round($size/1MB,1)) 'INFO'
+            $freed += $size; continue
+        }
+
+        Get-ChildItem -LiteralPath $p -Force -ErrorAction SilentlyContinue | ForEach-Object {
+            try { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop } catch {}   # skip in-use
+        }
+        $freed += $size
+        Write-Log ("Shader-Cache geleert: {0} (~{1} MB)" -f $short, [math]::Round($size/1MB,1)) 'INFO'
+    }
+
+    $mb = [math]::Round($freed/1MB,1)
+    Write-Log ("Shader-Cache: ~{0} MB frei. Erster Spielstart baut die Shader neu (einmalig ruckeliger)." -f $mb) 'OK'
+    return $freed
+}
+
+function Invoke-Module-ShaderCache {
+    Write-Log '=== Module: Shader-Cache leeren (opt-in) ===' 'STEP'
+    if (-not $Global:Sel01Tweaker.ShaderClean) {
+        Write-Log 'Shader-Cache-Clean uebersprungen (nur mit -ShaderClean oder ueber das Menue)' 'INFO'
+        return
+    }
+    $freed = Clear-Sel01ShaderCache
+    $mb = [math]::Round($freed/1MB,1)
+    Add-Change ("Shader-Cache geleert (~$mb MB)")
+}
+
+
 
 # ---------------------------------------------------------------------------
 #  Load parts. When bundled into dist\Sel01Tweaker.ps1 the functions already
@@ -2227,22 +2411,24 @@ function Show-AdvancedMenu {
         Write-Host '     [1] ' -ForegroundColor Green -NoNewline;  Write-Host 'CLEAN-MODUS    ' -ForegroundColor White -NoNewline; Write-Host '- maximales Aufraeumen (Office / kein Gaming).' -ForegroundColor Gray
         Write-Host '     [2] ' -ForegroundColor Magenta -NoNewline;Write-Host 'REPARATUR      ' -ForegroundColor White -NoNewline; Write-Host '- kaputte Systemdateien + Netzwerk reparieren (dauert).' -ForegroundColor Gray
         Write-Host '     [3] ' -ForegroundColor Magenta -NoNewline;Write-Host 'DNS AENDERN    ' -ForegroundColor White -NoNewline; Write-Host '- schnellere/privatere Internet-Aufloesung.' -ForegroundColor Gray
-        Write-Host '     [4] ' -ForegroundColor Cyan -NoNewline;   Write-Host 'RUECKGAENGIG   ' -ForegroundColor White -NoNewline; Write-Host '- letzten Lauf zurueckdrehen.' -ForegroundColor Gray
-        Write-Host '     [5] ' -ForegroundColor DarkGray -NoNewline; Write-Host 'ZURUECK' -ForegroundColor White
+        Write-Host '     [4] ' -ForegroundColor Magenta -NoNewline;Write-Host 'SHADER-CACHE   ' -ForegroundColor White -NoNewline; Write-Host '- gegen Ruckler nach Treiber-/Windows-Update.' -ForegroundColor Gray
+        Write-Host '     [5] ' -ForegroundColor Cyan -NoNewline;   Write-Host 'RUECKGAENGIG   ' -ForegroundColor White -NoNewline; Write-Host '- letzten Lauf zurueckdrehen.' -ForegroundColor Gray
+        Write-Host '     [6] ' -ForegroundColor DarkGray -NoNewline; Write-Host 'ZURUECK' -ForegroundColor White
         Show-Credits
-        $a = (Read-Host '   Wahl (1-5)').Trim()
+        $a = (Read-Host '   Wahl (1-6)').Trim()
         switch ($a) {
             '1' { if (Show-Overview -P 'Clean' -Dry $false) { Invoke-Pipeline -Profile 'Clean' -DryRun $false; Read-Host "`n   ENTER zurueck" } }
             '2' { Invoke-Repair;  Read-Host "`n   ENTER zurueck" }
             '3' { Invoke-DnsMenu; Read-Host "`n   ENTER zurueck" }
-            '4' {
+            '4' { Invoke-ShaderCacheMenu; Read-Host "`n   ENTER zurueck" }
+            '5' {
                 Show-Banner
                 Write-Host '   RUECKGAENGIG - letzten Lauf zurueckdrehen.' -ForegroundColor Cyan
                 if ((Read-Host '   ENTER = los, X = Abbrechen') -notmatch '^[xX]') {
                     Initialize-Run; Invoke-Revert; Read-Host "`n   ENTER zurueck"
                 }
             }
-            '5' { return }
+            '6' { return }
             default { if ($a -match '^[xX]$') { return } }
         }
     }
@@ -2271,12 +2457,16 @@ function Show-Overview {
         Write-Host '       + extra      ' -ForegroundColor Cyan -NoNewline; Write-Host 'Hintergrund-Apps aus, mehr Dienste auf Manuell' -ForegroundColor Gray
     } else {
         Write-Host '    6. Gaming        ' -ForegroundColor Cyan -NoNewline; Write-Host 'GameDVR aus; Game Mode + HAGS AN; MMCSS (audio-sicher)' -ForegroundColor Gray
+        Write-Host '       + GTA V       ' -ForegroundColor Cyan -NoNewline; Write-Host 'FSO aus + High-Perf-GPU (falls GTA V installiert)' -ForegroundColor Gray
         Write-Host '    7. FiveM         ' -ForegroundColor Cyan -NoNewline; Write-Host 'FSO/GPU/Prioritaet/Netzwerk (nur wenn FiveM installiert)' -ForegroundColor Gray
     }
     Write-Host '       + Netzwerk    ' -ForegroundColor Cyan -NoNewline; Write-Host 'Nagle aus pro NIC fuer weniger Latenz (nur Gaming)' -ForegroundColor Gray
     Write-Host '       + GPU         ' -ForegroundColor Cyan -NoNewline; Write-Host 'NVIDIA-Telemetrie aus (nur NVIDIA; Treiber unberuehrt)' -ForegroundColor Gray
-    Write-Host '    8. Power (Desktop)' -ForegroundColor Cyan -NoNewline; Write-Host ' USB-Suspend/PCIe-ASPM aus (nur Desktop/Netzstrom)' -ForegroundColor Gray
+    Write-Host '    8. Power         ' -ForegroundColor Cyan -NoNewline; Write-Host 'CPU-Drosselung aus (Netzstrom); USB/PCIe/Disk nur Desktop' -ForegroundColor Gray
     Write-Host '    9. Cleaner       ' -ForegroundColor Cyan -NoNewline; Write-Host 'Temp/Update-Cache/Papierkorb leeren' -ForegroundColor Gray
+    if ($Global:Sel01Tweaker.ShaderClean) {
+        Write-Host '       + Shader     ' -ForegroundColor Cyan -NoNewline; Write-Host 'GPU-Shader-Cache leeren (-ShaderClean; erster Start ruckelt)' -ForegroundColor Gray
+    }
     Write-Host '   10. RAM-Cleaner   ' -ForegroundColor Cyan -NoNewline; Write-Host 'Speicher leeren + stuendlicher Hintergrund-Task' -ForegroundColor Gray
     Write-Host ''
     Write-Host '   Danach: Neustart empfohlen.  Rueckgaengig jederzeit mit Option [4].' -ForegroundColor DarkGray
@@ -2353,6 +2543,26 @@ function Invoke-DnsMenu {
 }
 
 # ===========================================================================
+#  Shader cache cleaner (on-demand; also available as -ShaderClean)
+# ===========================================================================
+function Invoke-ShaderCacheMenu {
+    Show-Banner
+    Write-Host '   SHADER-CACHE LEEREN' -ForegroundColor Magenta
+    Write-Host ''
+    Write-Host '   Hilft bei: Ruckeln/Grafikfehler nach GPU-Treiber- oder Windows-Update.' -ForegroundColor Gray
+    Write-Host '   Geloescht werden nur die Shader-Caches von NVIDIA/AMD/Intel + DirectX.' -ForegroundColor Gray
+    Write-Host '   Treiber bauen sie automatisch neu.' -ForegroundColor Gray
+    Write-Host ''
+    Write-Host '   ACHTUNG: der ERSTE Spielstart danach ruckelt einmalig (GTA V 1-2 Min),' -ForegroundColor Yellow
+    Write-Host '   weil die Shader neu kompiliert werden. Spiele vorher schliessen.' -ForegroundColor Yellow
+    Show-Credits
+    if ((Read-Host '   ENTER = leeren, X = Abbrechen') -match '^[xX]') { return }
+    Initialize-Run
+    $Global:Sel01Tweaker.DryRun = $false
+    Clear-Sel01ShaderCache | Out-Null
+}
+
+# ===========================================================================
 #  Pipeline
 # ===========================================================================
 function Initialize-Run {
@@ -2398,6 +2608,7 @@ function Invoke-Pipeline {
         @{ Name='Features';      Skip=$false;                           Run={ Invoke-Module-Features } },
         @{ Name='Power';         Skip=$false;                           Run={ Invoke-Module-Power } },
         @{ Name='Cleaner';       Skip=$Global:Sel01Tweaker.SkipClean;   Run={ Invoke-Module-Cleaner } },
+        @{ Name='ShaderCache';   Skip=$false;                           Run={ Invoke-Module-ShaderCache } },
         @{ Name='RamCleaner';    Skip=$false;                           Run={ Invoke-Module-RamCleaner -NoTask:$Global:Sel01Tweaker.NoRamTask } }
     )
     Initialize-Ui
@@ -2453,7 +2664,7 @@ function Invoke-Pipeline {
 #  Entry
 # ===========================================================================
 function Start-Sel01Tweaker {
-    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$SkipClean,$TimerFix,$MsiMode,$NoRamTask,$DryRun)
+    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$SkipClean,$TimerFix,$MsiMode,$ShaderClean,$NoRamTask,$DryRun)
 
     # --- Self-elevate -----------------------------------------------------
     if (-not (Test-Admin)) {
@@ -2469,6 +2680,7 @@ function Start-Sel01Tweaker {
             if ($SkipClean)   { $argline += '-SkipClean' }
             if ($TimerFix)    { $argline += '-TimerFix' }
             if ($MsiMode)     { $argline += '-MsiMode' }
+            if ($ShaderClean) { $argline += '-ShaderClean' }
             if ($NoRamTask)   { $argline += '-NoRamTask' }
             if ($DryRun)      { $argline += '-DryRun' }
             Start-Process powershell.exe -Verb RunAs -ArgumentList $argline
@@ -2487,6 +2699,7 @@ function Start-Sel01Tweaker {
     $Global:Sel01Tweaker.SkipClean   = [bool]$SkipClean
     $Global:Sel01Tweaker.TimerFix    = [bool]$TimerFix
     $Global:Sel01Tweaker.MsiMode     = [bool]$MsiMode
+    $Global:Sel01Tweaker.ShaderClean = [bool]$ShaderClean
     $Global:Sel01Tweaker.NoRamTask   = [bool]$NoRamTask
 
     Initialize-Ui
@@ -2522,5 +2735,5 @@ function Start-Sel01Tweaker {
     }
 }
 
-Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -SkipFiveM:$SkipFiveM -SkipClean:$SkipClean -TimerFix:$TimerFix -MsiMode:$MsiMode -NoRamTask:$NoRamTask -DryRun:$DryRun
+Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -SkipFiveM:$SkipFiveM -SkipClean:$SkipClean -TimerFix:$TimerFix -MsiMode:$MsiMode -ShaderClean:$ShaderClean -NoRamTask:$NoRamTask -DryRun:$DryRun
 

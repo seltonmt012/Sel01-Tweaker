@@ -30,6 +30,17 @@ affiliated with or endorsed by any of them.
   `SetSystemFileCacheSize`). The GPL does not extend to an independent
   reimplementation of the underlying public Windows APIs.
 
+## Documentation / research reference (no code used)
+
+- **OpenTweak** - SwisserDev - MIT License
+  https://github.com/SwisserDev/OpenTweak
+  A C#/WPF tool with per-tweak documentation and honest effectiveness ratings. No code
+  was copied (different language, different architecture). Its documentation informed
+  three changes in v1.9.0: the shader-cache cleaner (`modules/19-ShaderCache.ps1`), the
+  per-app GTA V flags in `modules/06-Gaming.ps1`, and allowing `PowerThrottlingOff` on
+  laptops running on mains in `modules/11-Power.ps1`. The "Honest effectiveness" table
+  in README.md follows the same idea of rating tweaks openly.
+
 ## Performance / visual-effects registry values
 
 The "Adjust for best performance" registry mapping in `modules/04-Performance.ps1`

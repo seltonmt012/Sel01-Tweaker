@@ -81,7 +81,7 @@ inlines libs+modules at the `#__SEL01TWEAKER_BUNDLE_INSERT__` marker to produce
   (`irm | iex`, captured) or VT is unavailable, and any render error latches it off
   permanently. Driven zero-touch through `Write-Log` + `Invoke-Pipeline` hooks
   (`Set-UiModule`/`Complete-UiModule`/`Complete-UiPanel`) - modules need no changes.
-- `src/modules/01..18` - the stages, run in order by `Invoke-Pipeline`:
+- `src/modules/01..19` - the stages, run in order by `Invoke-Pipeline`:
   01 Debloat **orchestrates** (downloads MIT upstream Win11Debloat, runs silently);
   16 AppxBloat is a **native** app-removal backstop (removes ~20 bloat Store apps by name,
   download-independent; appx removal is NOT reverted - like Debloat); 17 Win10 is a
@@ -90,8 +90,14 @@ inlines libs+modules at the `#__SEL01TWEAKER_BUNDLE_INSERT__` marker to produce
   02 RemoveAI, 03 WinutilTweaks, 04 Performance, 06 Gaming, 09 Extra, 10 Privacy are
   **native** reimplementations (02 was orchestrated but upstream RemoveWindowsAI is
   chronically broken on Win11 26x00, so it's now native policy disables + Copilot-app
-  removal); 08 FiveM (Gaming only, includes a whitelist cache cleaner), 11 Power
-  (desktop-on-AC only, plus opt-in `-TimerFix`/`-MsiMode`), 12 Cleaner, 07 RamCleaner
+  removal); 06 Gaming also applies the per-app FSO/high-perf-GPU flags to an installed
+  **GTA V** (Rockstar/Steam/Epic, Legacy + Enhanced) via `Get-Sel01GtaVExePaths`;
+  08 FiveM (Gaming only, includes a whitelist cache cleaner), 11 Power
+  (**AC only**: `PowerThrottlingOff` runs on desktop *and* laptop-on-mains, the
+  powercfg device block + `-MsiMode` stay desktop-only, battery skips everything;
+  plus opt-in `-TimerFix`), 12 Cleaner, 19 ShaderCache (opt-in `-ShaderClean` or
+  advanced-menu entry; clears NVIDIA/AMD/Intel + DirectX shader caches, no revert),
+  07 RamCleaner
   (independent Win32 P/Invoke - WinMemoryCleaner is GPL, so no code is copied);
   13 Network (Gaming-only, Nagle off per NIC), 14 Gpu (NVIDIA + AMD telemetry
   tasks + opt-out reg flags; vendor-gated, drivers/updates untouched), 15 Features

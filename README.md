@@ -79,7 +79,8 @@ Or run it straight from GitHub, winutil-style (supports parameters):
 | `-SkipFiveM` | Skip the FiveM tweaks (Gaming profile only). |
 | `-SkipClean` | Skip the temp/disk cleaner. |
 | `-TimerFix` | Opt-in: Win11 global timer resolution (fixes micro-stutter; desktop). |
-| `-MsiMode` | Opt-in: enable GPU MSI mode (lower interrupt latency; auto-detects the GPU). |
+| `-MsiMode` | Opt-in: enable GPU MSI mode (lower interrupt latency; auto-detects the GPU, desktop only). |
+| `-ShaderClean` | Opt-in: clear the GPU shader caches (NVIDIA/AMD/Intel + DirectX). Fixes stutter after a driver update; the **next** game start recompiles shaders once. |
 | `-NoRamTask` | Run the one-shot RAM clean but don't install the hourly task. |
 
 ## Undo
@@ -109,14 +110,63 @@ needed.
    font smoothing, and thumbnails; transparency/animations off; 0ms menus; no startup delay;
    mouse acceleration off.
 5. **Power plan** - Ultimate Performance.
-6. **Gaming** - GameDVR off; Game Mode + HAGS per profile; MMCSS game priorities (audio-safe).
+6. **Gaming** - GameDVR off; Game Mode + HAGS per profile; MMCSS game priorities (audio-safe);
+   for an installed **GTA V** (Rockstar/Steam/Epic, Legacy + Enhanced): per-app fullscreen-optimizations
+   off + High-Performance GPU.
 7. **FiveM** (Gaming only) - per-app fullscreen-optimizations off + High-Performance GPU for the
    real FiveM executables, `TdrDelay=8` GPU crash guard, Above-Normal process priority, and
    Nagle/delayed-ACK off on the active adapter. Skips cleanly if FiveM isn't installed. Only safe,
    reversible tweaks - deliberately excludes the harmful "hitreg booster" registry hacks (see PROGRESS.md).
-8. **Power** (Desktop on AC only) - USB selective suspend off, PCIe ASPM off, disk no-sleep; auto-skipped on laptops/battery.
+8. **Power** (AC only) - CPU power throttling off on **desktops and laptops on mains** (that is where
+   Windows throttles hardest); the device-level settings (USB selective suspend, PCIe ASPM, disk
+   no-sleep) stay desktop-only. On battery the whole module is skipped.
 9. **Cleaner** - empties temp / Windows Update cache / thumbnail cache / Recycle Bin and reports freed space (`-SkipClean` to skip).
-10. **RAM cleaner** - one-shot clean + optional hourly background task (native Win32, no GPL code).
+10. **Shader cache** (opt-in, `-ShaderClean` or menu) - clears NVIDIA/AMD/Intel + DirectX shader caches.
+11. **RAM cleaner** - one-shot clean + optional hourly background task (native Win32, no GPL code).
+
+## Honest effectiveness
+
+No tweak here doubles your FPS. Nothing in a registry key can. This is what each
+change is actually worth, so you can judge the tool instead of trusting a
+marketing table:
+
+| Rating | Meaning |
+|--------|---------|
+| ✅ | Measurable or clearly noticeable |
+| ⚠️ | Situational - helps on specific hardware or in specific cases |
+| ❌ | No real gaming benefit; kept only because it is harmless and expected |
+
+| Change | Rating | Reality |
+|--------|--------|---------|
+| Debloat / Appx removal, background apps off | ✅ | Fewer background processes, less disk/RAM, faster boot. |
+| Telemetry / privacy / AI off | ✅ privacy, ⚠️ perf | The point is data, not frames. |
+| Startup delay 0, menu delay 0, animations off | ✅ *perceived* | Windows feels snappier; it is not more FPS. |
+| Mouse acceleration off | ✅ | 1:1 input, real for aiming. |
+| Power throttling off (on AC) | ✅ | Biggest win on laptops with aggressive OEM power management. |
+| FiveM cache clean | ✅ | Fixes texture bugs, load failures, crash loops. |
+| Shader cache clean (`-ShaderClean`) | ✅ | Fixes stutter after GPU-driver / Windows updates. |
+| Page-file guard (FiveM) | ✅ | Prevents out-of-memory crashes when the page file was switched off. |
+| Windowed flip-model upgrade (Win11) | ✅ | Real latency drop in borderless windowed mode. |
+| Ultimate Performance plan | ⚠️ | Helps older/laptop hardware, near-nothing on a modern desktop. |
+| HAGS | ⚠️ | Mixed per GPU and game - test it. |
+| GameDVR / Game Bar off | ⚠️ | Removes capture overhead you probably weren't using. |
+| MMCSS game priorities, SystemResponsiveness 10 | ⚠️ | Only matters when the CPU is contended. `0` would starve audio - we use the safe value. |
+| FSO off + High-Performance GPU per exe (GTA V / FiveM) | ⚠️ | GPU preference matters on hybrid-graphics laptops; FSO helps vsync/tearing cases. |
+| `TdrDelay=8` | ⚠️ | Crash guard for GPU-heavy FiveM streaming, not performance. |
+| Timer resolution (`-TimerFix`, Win11) | ⚠️ | Steadier frame pacing for people sensitive to micro-stutter. |
+| GPU MSI mode (`-MsiMode`) | ⚠️ | Interrupt latency; measurable only with proper tooling. |
+| Services → Manual, optional features off | ⚠️ | A little RAM/disk and attack surface. Never *Disabled*, never core services. |
+| Temp / update-cache cleaner | ⚠️ | Frees disk. Zero FPS. |
+| RAM cleaner | ⚠️ | Trims the standby list. Helps specific stutter cases; Windows manages memory fine otherwise. |
+| USB selective suspend / PCIe ASPM off | ⚠️ | Avoids device wake-up hitches on desktops. |
+| `Win32PrioritySeparation` | ❌ | Scheduler folklore. We ship a safe value, not the harmful `38`. |
+| `NetworkThrottlingIndex` off | ❌ | It throttles *multimedia streaming*, not games. Harmless, expected by users. |
+| Nagle / delayed-ACK off | ❌ gameplay, ⚠️ TCP | FiveM gameplay is UDP. Only the connect/download path is TCP. |
+
+**Deliberately not shipped** (however much FPS the internet promises): disabling
+VBS/HVCI, Defender or SmartScreen, turning Windows Update off, CPU core
+unparking, `TdrLevel=0`, page-file off, `DisablePagingExecutive`, hosts/firewall
+telemetry blocking. See PROGRESS.md for the full excluded list and why.
 
 ## Files
 
@@ -124,7 +174,8 @@ needed.
 src/Sel01Tweaker.ps1          entry (self-elevate, flow, summary)
 src/lib/Common.ps1     logging, Set-Reg (typed+snapshot), P/Invoke, orchestration
 src/lib/Backup.ps1     restore point, backup JSON, -Revert
-src/modules/01..12     the stages (debloat, AI, tweaks, privacy, perf, gaming, FiveM, power, cleaner, RAM)
+src/modules/01..19     the stages (debloat, AI, tweaks, privacy, perf, gaming, FiveM, power,
+                       cleaner, shader cache, RAM, services, network, GPU, features)
 build.ps1              bundles src -> dist/Sel01Tweaker.ps1 (single file, syntax-checked)
 dist/Sel01Tweaker.ps1         generated one-file distributable
 tests/                 Pester tests (non-destructive)

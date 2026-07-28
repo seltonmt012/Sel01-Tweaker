@@ -28,6 +28,7 @@ param(
     [switch]$SkipClean,
     [switch]$TimerFix,
     [switch]$MsiMode,
+    [switch]$ShaderClean,
     [switch]$NoRamTask,
     [switch]$DryRun
 )
@@ -94,22 +95,24 @@ function Show-AdvancedMenu {
         Write-Host '     [1] ' -ForegroundColor Green -NoNewline;  Write-Host 'CLEAN-MODUS    ' -ForegroundColor White -NoNewline; Write-Host '- maximales Aufraeumen (Office / kein Gaming).' -ForegroundColor Gray
         Write-Host '     [2] ' -ForegroundColor Magenta -NoNewline;Write-Host 'REPARATUR      ' -ForegroundColor White -NoNewline; Write-Host '- kaputte Systemdateien + Netzwerk reparieren (dauert).' -ForegroundColor Gray
         Write-Host '     [3] ' -ForegroundColor Magenta -NoNewline;Write-Host 'DNS AENDERN    ' -ForegroundColor White -NoNewline; Write-Host '- schnellere/privatere Internet-Aufloesung.' -ForegroundColor Gray
-        Write-Host '     [4] ' -ForegroundColor Cyan -NoNewline;   Write-Host 'RUECKGAENGIG   ' -ForegroundColor White -NoNewline; Write-Host '- letzten Lauf zurueckdrehen.' -ForegroundColor Gray
-        Write-Host '     [5] ' -ForegroundColor DarkGray -NoNewline; Write-Host 'ZURUECK' -ForegroundColor White
+        Write-Host '     [4] ' -ForegroundColor Magenta -NoNewline;Write-Host 'SHADER-CACHE   ' -ForegroundColor White -NoNewline; Write-Host '- gegen Ruckler nach Treiber-/Windows-Update.' -ForegroundColor Gray
+        Write-Host '     [5] ' -ForegroundColor Cyan -NoNewline;   Write-Host 'RUECKGAENGIG   ' -ForegroundColor White -NoNewline; Write-Host '- letzten Lauf zurueckdrehen.' -ForegroundColor Gray
+        Write-Host '     [6] ' -ForegroundColor DarkGray -NoNewline; Write-Host 'ZURUECK' -ForegroundColor White
         Show-Credits
-        $a = (Read-Host '   Wahl (1-5)').Trim()
+        $a = (Read-Host '   Wahl (1-6)').Trim()
         switch ($a) {
             '1' { if (Show-Overview -P 'Clean' -Dry $false) { Invoke-Pipeline -Profile 'Clean' -DryRun $false; Read-Host "`n   ENTER zurueck" } }
             '2' { Invoke-Repair;  Read-Host "`n   ENTER zurueck" }
             '3' { Invoke-DnsMenu; Read-Host "`n   ENTER zurueck" }
-            '4' {
+            '4' { Invoke-ShaderCacheMenu; Read-Host "`n   ENTER zurueck" }
+            '5' {
                 Show-Banner
                 Write-Host '   RUECKGAENGIG - letzten Lauf zurueckdrehen.' -ForegroundColor Cyan
                 if ((Read-Host '   ENTER = los, X = Abbrechen') -notmatch '^[xX]') {
                     Initialize-Run; Invoke-Revert; Read-Host "`n   ENTER zurueck"
                 }
             }
-            '5' { return }
+            '6' { return }
             default { if ($a -match '^[xX]$') { return } }
         }
     }
@@ -138,12 +141,16 @@ function Show-Overview {
         Write-Host '       + extra      ' -ForegroundColor Cyan -NoNewline; Write-Host 'Hintergrund-Apps aus, mehr Dienste auf Manuell' -ForegroundColor Gray
     } else {
         Write-Host '    6. Gaming        ' -ForegroundColor Cyan -NoNewline; Write-Host 'GameDVR aus; Game Mode + HAGS AN; MMCSS (audio-sicher)' -ForegroundColor Gray
+        Write-Host '       + GTA V       ' -ForegroundColor Cyan -NoNewline; Write-Host 'FSO aus + High-Perf-GPU (falls GTA V installiert)' -ForegroundColor Gray
         Write-Host '    7. FiveM         ' -ForegroundColor Cyan -NoNewline; Write-Host 'FSO/GPU/Prioritaet/Netzwerk (nur wenn FiveM installiert)' -ForegroundColor Gray
     }
     Write-Host '       + Netzwerk    ' -ForegroundColor Cyan -NoNewline; Write-Host 'Nagle aus pro NIC fuer weniger Latenz (nur Gaming)' -ForegroundColor Gray
     Write-Host '       + GPU         ' -ForegroundColor Cyan -NoNewline; Write-Host 'NVIDIA-Telemetrie aus (nur NVIDIA; Treiber unberuehrt)' -ForegroundColor Gray
-    Write-Host '    8. Power (Desktop)' -ForegroundColor Cyan -NoNewline; Write-Host ' USB-Suspend/PCIe-ASPM aus (nur Desktop/Netzstrom)' -ForegroundColor Gray
+    Write-Host '    8. Power         ' -ForegroundColor Cyan -NoNewline; Write-Host 'CPU-Drosselung aus (Netzstrom); USB/PCIe/Disk nur Desktop' -ForegroundColor Gray
     Write-Host '    9. Cleaner       ' -ForegroundColor Cyan -NoNewline; Write-Host 'Temp/Update-Cache/Papierkorb leeren' -ForegroundColor Gray
+    if ($Global:Sel01Tweaker.ShaderClean) {
+        Write-Host '       + Shader     ' -ForegroundColor Cyan -NoNewline; Write-Host 'GPU-Shader-Cache leeren (-ShaderClean; erster Start ruckelt)' -ForegroundColor Gray
+    }
     Write-Host '   10. RAM-Cleaner   ' -ForegroundColor Cyan -NoNewline; Write-Host 'Speicher leeren + stuendlicher Hintergrund-Task' -ForegroundColor Gray
     Write-Host ''
     Write-Host '   Danach: Neustart empfohlen.  Rueckgaengig jederzeit mit Option [4].' -ForegroundColor DarkGray
@@ -220,6 +227,26 @@ function Invoke-DnsMenu {
 }
 
 # ===========================================================================
+#  Shader cache cleaner (on-demand; also available as -ShaderClean)
+# ===========================================================================
+function Invoke-ShaderCacheMenu {
+    Show-Banner
+    Write-Host '   SHADER-CACHE LEEREN' -ForegroundColor Magenta
+    Write-Host ''
+    Write-Host '   Hilft bei: Ruckeln/Grafikfehler nach GPU-Treiber- oder Windows-Update.' -ForegroundColor Gray
+    Write-Host '   Geloescht werden nur die Shader-Caches von NVIDIA/AMD/Intel + DirectX.' -ForegroundColor Gray
+    Write-Host '   Treiber bauen sie automatisch neu.' -ForegroundColor Gray
+    Write-Host ''
+    Write-Host '   ACHTUNG: der ERSTE Spielstart danach ruckelt einmalig (GTA V 1-2 Min),' -ForegroundColor Yellow
+    Write-Host '   weil die Shader neu kompiliert werden. Spiele vorher schliessen.' -ForegroundColor Yellow
+    Show-Credits
+    if ((Read-Host '   ENTER = leeren, X = Abbrechen') -match '^[xX]') { return }
+    Initialize-Run
+    $Global:Sel01Tweaker.DryRun = $false
+    Clear-Sel01ShaderCache | Out-Null
+}
+
+# ===========================================================================
 #  Pipeline
 # ===========================================================================
 function Initialize-Run {
@@ -265,6 +292,7 @@ function Invoke-Pipeline {
         @{ Name='Features';      Skip=$false;                           Run={ Invoke-Module-Features } },
         @{ Name='Power';         Skip=$false;                           Run={ Invoke-Module-Power } },
         @{ Name='Cleaner';       Skip=$Global:Sel01Tweaker.SkipClean;   Run={ Invoke-Module-Cleaner } },
+        @{ Name='ShaderCache';   Skip=$false;                           Run={ Invoke-Module-ShaderCache } },
         @{ Name='RamCleaner';    Skip=$false;                           Run={ Invoke-Module-RamCleaner -NoTask:$Global:Sel01Tweaker.NoRamTask } }
     )
     Initialize-Ui
@@ -320,7 +348,7 @@ function Invoke-Pipeline {
 #  Entry
 # ===========================================================================
 function Start-Sel01Tweaker {
-    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$SkipClean,$TimerFix,$MsiMode,$NoRamTask,$DryRun)
+    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$SkipClean,$TimerFix,$MsiMode,$ShaderClean,$NoRamTask,$DryRun)
 
     # --- Self-elevate -----------------------------------------------------
     if (-not (Test-Admin)) {
@@ -336,6 +364,7 @@ function Start-Sel01Tweaker {
             if ($SkipClean)   { $argline += '-SkipClean' }
             if ($TimerFix)    { $argline += '-TimerFix' }
             if ($MsiMode)     { $argline += '-MsiMode' }
+            if ($ShaderClean) { $argline += '-ShaderClean' }
             if ($NoRamTask)   { $argline += '-NoRamTask' }
             if ($DryRun)      { $argline += '-DryRun' }
             Start-Process powershell.exe -Verb RunAs -ArgumentList $argline
@@ -354,6 +383,7 @@ function Start-Sel01Tweaker {
     $Global:Sel01Tweaker.SkipClean   = [bool]$SkipClean
     $Global:Sel01Tweaker.TimerFix    = [bool]$TimerFix
     $Global:Sel01Tweaker.MsiMode     = [bool]$MsiMode
+    $Global:Sel01Tweaker.ShaderClean = [bool]$ShaderClean
     $Global:Sel01Tweaker.NoRamTask   = [bool]$NoRamTask
 
     Initialize-Ui
@@ -389,4 +419,4 @@ function Start-Sel01Tweaker {
     }
 }
 
-Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -SkipFiveM:$SkipFiveM -SkipClean:$SkipClean -TimerFix:$TimerFix -MsiMode:$MsiMode -NoRamTask:$NoRamTask -DryRun:$DryRun
+Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -SkipFiveM:$SkipFiveM -SkipClean:$SkipClean -TimerFix:$TimerFix -MsiMode:$MsiMode -ShaderClean:$ShaderClean -NoRamTask:$NoRamTask -DryRun:$DryRun

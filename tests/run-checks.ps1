@@ -31,6 +31,26 @@ ok 'module AppxBloat exists'([bool](Get-Command Invoke-Module-AppxBloat -ErrorAc
 ok 'module Win10 exists'   ([bool](Get-Command Invoke-Module-Win10 -ErrorAction SilentlyContinue))
 ok 'module Services exists'([bool](Get-Command Invoke-Module-Services -ErrorAction SilentlyContinue))
 ok 'suspend-panel exists'  ([bool](Get-Command Suspend-Panel -ErrorAction SilentlyContinue))
+ok 'module ShaderCache exists' ([bool](Get-Command Invoke-Module-ShaderCache -ErrorAction SilentlyContinue))
+ok 'shader clear helper exists' ([bool](Get-Command Clear-Sel01ShaderCache -ErrorAction SilentlyContinue))
+ok 'gta exe finder exists'  ([bool](Get-Command Get-Sel01GtaVExePaths -ErrorAction SilentlyContinue))
+
+# Shader-cache paths: only ever LOCALAPPDATA cache dirs, and only existing ones.
+$shPaths = @(Get-Sel01ShaderCachePaths)
+ok 'shader paths all exist'  (-not ($shPaths | Where-Object { -not (Test-Path -LiteralPath $_) }))
+ok 'shader paths localappdata' (-not ($shPaths | Where-Object { $_ -notlike "$env:LOCALAPPDATA*" }))
+
+# GTA V finder must never return a path that isn't a real GTA5*.exe on disk.
+$gtaPaths = @(Get-Sel01GtaVExePaths)
+ok 'gta paths exist'    (-not ($gtaPaths | Where-Object { -not (Test-Path -LiteralPath $_) }))
+ok 'gta paths are exes' (-not ($gtaPaths | Where-Object { (Split-Path $_ -Leaf) -notmatch '^GTA5(_Enhanced)?\.exe$' }))
+
+# ShaderCache module is opt-in: without the flag it must not touch anything.
+$Global:Sel01Tweaker.ShaderClean = $false
+$Global:Sel01Tweaker.Changes = [System.Collections.Generic.List[string]]::new()
+Invoke-Module-ShaderCache
+ok 'shader module no-op without flag' ($Global:Sel01Tweaker.Changes.Count -eq 0)
+
 
 $Global:Sel01Tweaker.DryRun = $false
 $Global:Sel01Tweaker.Backup = [System.Collections.Generic.List[object]]::new()
@@ -74,6 +94,32 @@ ok 'revert removed New'        ((Get-ItemProperty $TestKey -Name New -ErrorActio
 Remove-Item $bf -Force -ErrorAction SilentlyContinue
 
 Remove-Item $TestKey -Recurse -Force -ErrorAction SilentlyContinue
+
+# --- Power module gating (LAST: shadows Set-Reg/Get-Sel01PowerInfo) ---------
+# Battery must skip everything; laptop on AC must still get PowerThrottlingOff
+# (the OpenTweak finding we adopted) but NOT the device-level powercfg block.
+# Set-Reg is idempotent, so a real snapshot can't be asserted on a machine that
+# already has the value - record the calls instead.
+$script:regCalls = [System.Collections.Generic.List[string]]::new()
+function Set-Reg { param($Path,$Name,$Type,$Value,$Note) $script:regCalls.Add("$Name") | Out-Null }
+$Global:Sel01Tweaker.DryRun = $true
+
+function Get-Sel01PowerInfo { $Global:Sel01Tweaker.IsLaptop = $true; $Global:Sel01Tweaker.OnBattery = $true }
+Invoke-Module-Power
+ok 'power: battery skips all' ($script:regCalls.Count -eq 0)
+
+$script:regCalls.Clear()
+function Get-Sel01PowerInfo { $Global:Sel01Tweaker.IsLaptop = $true; $Global:Sel01Tweaker.OnBattery = $false }
+Invoke-Module-Power
+ok 'power: laptop@AC gets PowerThrottlingOff' ($script:regCalls -contains 'PowerThrottlingOff')
+
+$script:regCalls.Clear()
+$Global:Sel01Tweaker.MsiMode = $true
+Invoke-Module-Power
+ok 'power: MSI mode stays desktop-only' (-not ($script:regCalls -contains 'MSISupported'))
+$Global:Sel01Tweaker.MsiMode = $false
+$Global:Sel01Tweaker.DryRun = $false
+
 Write-Host ''
 if ($script:fail) { Write-Host "$script:fail CHECK(S) FAILED" -ForegroundColor Red; exit 1 }
 else { Write-Host 'ALL CHECKS PASSED' -ForegroundColor Green }

@@ -5,13 +5,14 @@
 Run it once, as admin, and it tidies up a fresh Windows 10 or 11 install for you:
 removes bloat apps and Copilot, turns off telemetry, sets the performance and
 visual-effects options most people change by hand, switches on the Ultimate
-Performance power plan, applies gaming and FiveM tweaks, and clears out temp files
-and RAM. No menus to click through. Before it touches anything it makes a restore
+Performance power plan, applies gaming and FiveM tweaks, and clears out temp files.
+No menus to click through. Before it touches anything it makes a restore
 point and a registry backup, so `-Revert` puts everything back.
 
 It runs Win11Debloat and RemoveWindowsAI for you, and reimplements the winutil
-tweaks and a WinMemoryCleaner-style RAM clean natively (no GPL code bundled).
-NOTICE.md has the licenses.
+tweaks and an opt-in, one-shot standby-list purge natively (no GPL code bundled).
+NOTICE.md has the licenses. It never installs a background task that touches
+memory - see "Honest effectiveness" for why.
 
 ## ⚡ Schnellster Start (1 Zeile)
 
@@ -81,7 +82,8 @@ Or run it straight from GitHub, winutil-style (supports parameters):
 | `-TimerFix` | Opt-in: Win11 global timer resolution (fixes micro-stutter; desktop). |
 | `-MsiMode` | Opt-in: enable GPU MSI mode (lower interrupt latency; auto-detects the GPU, desktop only). |
 | `-ShaderClean` | Opt-in: clear the GPU shader caches (NVIDIA/AMD/Intel + DirectX). Fixes stutter after a driver update; the **next** game start recompiles shaders once. |
-| `-NoRamTask` | Run the one-shot RAM clean but don't install the hourly task. |
+| `-RamClean` | Opt-in: purge the standby list **once**. No background task, no working sets touched. Skipped when the pagefile is on an HDD. |
+| `-NoRamTask` | Deprecated no-op (kept so old command lines still bind). There is no background RAM task any more. |
 
 ## Undo
 
@@ -89,8 +91,10 @@ Or run it straight from GitHub, winutil-style (supports parameters):
 .\dist\Sel01Tweaker.ps1 -Revert
 ```
 
-Restores every changed registry value, deletes the minted power scheme (back to
-Balanced), and removes the hourly RAM-clean task.
+Restores every changed registry value and deletes the minted power scheme (back to
+Balanced). Revert also uninstalls the old hourly RAM-clean task and its leftover
+helper script if they are still present, whatever the backup says - but you don't
+have to revert for that: any normal v1.10.0 run uninstalls them too.
 **Not undone by revert:** apps removed during debloat (reinstall via Store/winget)
 and the disabled telemetry scheduled tasks (Clean profile) - re-enable manually if
 needed.
@@ -122,7 +126,10 @@ needed.
    no-sleep) stay desktop-only. On battery the whole module is skipped.
 9. **Cleaner** - empties temp / Windows Update cache / thumbnail cache / Recycle Bin and reports freed space (`-SkipClean` to skip).
 10. **Shader cache** (opt-in, `-ShaderClean` or menu) - clears NVIDIA/AMD/Intel + DirectX shader caches.
-11. **RAM cleaner** - one-shot clean + optional hourly background task (native Win32, no GPL code).
+11. **RAM cleaner** - uninstalls the hourly RAM-clean task that versions up to v1.9.0 installed
+    (it caused the periodic freezes). Nothing else happens unless you pass `-RamClean`, which
+    purges the standby list **once** (native Win32, no GPL code). No background task is ever
+    installed, and no process working sets are emptied.
 
 ## Honest effectiveness
 
@@ -157,7 +164,8 @@ marketing table:
 | GPU MSI mode (`-MsiMode`) | ⚠️ | Interrupt latency; measurable only with proper tooling. |
 | Services → Manual, optional features off | ⚠️ | A little RAM/disk and attack surface. Never *Disabled*, never core services. |
 | Temp / update-cache cleaner | ⚠️ | Frees disk. Zero FPS. |
-| RAM cleaner | ⚠️ | Trims the standby list. Helps specific stutter cases; Windows manages memory fine otherwise. |
+| Periodic RAM "cleaning" (shipped up to v1.9.0, now removed) | ❌ actively harmful | The hourly task we used to install called `EmptyWorkingSet` on every process and dropped the standby list. That evicts the whole live working set of the machine to the pagefile, so everything you touch next has to be faulted back in - which is exactly the recurring multi-minute freeze users reported, once an hour, with nothing in the event log. Worst when the pagefile sits on an HDD. "Free RAM" rising in Task Manager is the damage, not the win. Every v1.10.0 run uninstalls that task. |
+| One-shot standby purge (`-RamClean`, opt-in) | ⚠️ | Drops the standby list once, when you ask for it. The one defensible case is a standby list stuffed with data you will not read again (after a huge file copy). Otherwise pointless: the standby list is already reclaimable and Windows hands it back on demand. Never touches working sets, and refuses to run when the pagefile is on an HDD. |
 | USB selective suspend / PCIe ASPM off | ⚠️ | Avoids device wake-up hitches on desktops. |
 | `Win32PrioritySeparation` | ❌ | Scheduler folklore. We ship a safe value, not the harmful `38`. |
 | `NetworkThrottlingIndex` off | ❌ | It throttles *multimedia streaming*, not games. Harmless, expected by users. |
@@ -166,7 +174,10 @@ marketing table:
 **Deliberately not shipped** (however much FPS the internet promises): disabling
 VBS/HVCI, Defender or SmartScreen, turning Windows Update off, CPU core
 unparking, `TdrLevel=0`, page-file off, `DisablePagingExecutive`, hosts/firewall
-telemetry blocking. See PROGRESS.md for the full excluded list and why.
+telemetry blocking, and **any periodic/background memory cleaning** - no scheduled
+RAM task, no `EmptyWorkingSet` across processes, no system-file-cache flushing (we
+shipped that until v1.9.0 and it froze machines). See PROGRESS.md for the full
+excluded list and why.
 
 ## Files
 
@@ -202,5 +213,5 @@ Backups + logs live in `%ProgramData%\Sel01Tweaker\`.
 
 MIT - see [LICENSE](LICENSE). Third-party attribution in [NOTICE.md](NOTICE.md).
 No third-party code is bundled: orchestrated tools are downloaded/run as-is,
-winutil-style tweaks and the RAM cleaner are independent reimplementations, so
-there is no GPL obligation. Provided without warranty - use at your own risk.
+winutil-style tweaks and the standby-list purge are independent reimplementations,
+so there is no GPL obligation. Provided without warranty - use at your own risk.

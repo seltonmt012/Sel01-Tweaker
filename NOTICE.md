@@ -25,10 +25,12 @@ affiliated with or endorsed by any of them.
 - **WinMemoryCleaner** - Igor Mundstein - **GPL-3.0 License**
   https://github.com/IgorMundstein/WinMemoryCleaner
   Because GPL-3.0 is copyleft, **none of its code is used or bundled.**
-  `modules/07-RamCleaner.ps1` is an independent reimplementation of the same
-  documented Win32 APIs (`NtSetSystemInformation`, `EmptyWorkingSet`,
-  `SetSystemFileCacheSize`). The GPL does not extend to an independent
-  reimplementation of the underlying public Windows APIs.
+  `modules/07-RamCleaner.ps1` is an independent reimplementation of a documented
+  Win32 API: `NtSetSystemInformation` (`SystemMemoryListInformation`, commands 3
+  and 4 - flush the modified page list, purge the standby list). As of v1.10.0 it
+  no longer uses `EmptyWorkingSet` or `SetSystemFileCacheSize`; both were removed
+  because calling them across the system is harmful (see README). The GPL does not
+  extend to an independent reimplementation of the underlying public Windows APIs.
 
 ## Documentation / research reference (no code used)
 

@@ -71,10 +71,17 @@ inlines libs+modules at the `#__SEL01TWEAKER_BUNDLE_INSERT__` marker to produce
   `Build-PreferencesMask`, `Broadcast-SettingChange`.
 - `src/lib/Backup.ps1` - restore point, writes the backup JSON (registry
   snapshots + disabled tasks + disabled optional-features + removed capabilities +
-  minted power-scheme GUID + RAM task), and `Invoke-Revert` reads it back to restore
+  minted power-scheme GUID + `RamTask`), and `Invoke-Revert` reads it back to restore
   values, re-enable tasks, re-enable features / re-add capabilities (via
   `Disable-Sel01Feature` / `Remove-Sel01Capability` records), delete the power
-  scheme, and remove the RAM task.
+  scheme, and remove the legacy RAM task. Since v1.10.0 nothing sets `RamTaskName`,
+  so `RamTask` is always `$null` in new backups - revert therefore falls back to the
+  literal name `Sel01Tweaker-RamCleaner` and always attempts removal (silently when
+  there is no such task), and also deletes the leftover
+  `%ProgramData%\Sel01Tweaker\Sel01Tweaker-RamClean.ps1` helper. Uses
+  `Unregister-ScheduledTask`, not `schtasks`, which only signals failure through its
+  exit code so the surrounding `catch` never fired. A normal run removes the legacy
+  task anyway (module 07 `Remove-LegacyRamCleanerTask`).
 - `src/lib/Ui.ps1` - the console overlay (framed live panel, per-module + overall
   progress bars, spinner). `Initialize-Ui` probes VT/ANSI and sets `UI.Fancy`;
   it is `$false` (→ plain `Write-Log` output, unchanged) when output is redirected
@@ -98,7 +105,14 @@ inlines libs+modules at the `#__SEL01TWEAKER_BUNDLE_INSERT__` marker to produce
   plus opt-in `-TimerFix`), 12 Cleaner, 19 ShaderCache (opt-in `-ShaderClean` or
   advanced-menu entry; clears NVIDIA/AMD/Intel + DirectX shader caches, no revert),
   07 RamCleaner
-  (independent Win32 P/Invoke - WinMemoryCleaner is GPL, so no code is copied);
+  (independent Win32 P/Invoke - WinMemoryCleaner is GPL, so no code is copied;
+  since v1.10.0 it installs **no** scheduled task and no longer calls
+  `EmptyWorkingSet`/`SetSystemFileCacheSize` at all - the hourly task it used to
+  install froze real machines. Every run calls `Remove-LegacyRamCleanerTask` to
+  uninstall that task + its helper script from <= v1.9.0; the only remaining action
+  is the opt-in one-shot standby purge `-RamClean`, which also skips on a pending
+  reboot and when the pagefile is on an HDD. `-NoRamTask` still binds but is a
+  deprecated no-op);
   13 Network (Gaming-only, Nagle off per NIC), 14 Gpu (NVIDIA + AMD telemetry
   tasks + opt-out reg flags; vendor-gated, drivers/updates untouched), 15 Features
   (DISM: disables legacy optional features + niche capabilities; reboot to finalise).
@@ -121,6 +135,13 @@ cleanly when stdin is non-interactive so the menu can't spin.
   writes when the value already equals the target (idempotent), so re-runs are clean.
 - **Scheduled tasks** go through `Disable-Task` (recorded in state) so revert can
   re-enable them. Don't `schtasks /Disable` directly.
+- **Never install a background/periodic scheduled task that mutates system state,
+  and never call `EmptyWorkingSet` across processes or purge the standby list on a
+  schedule.** This tool is a one-shot run: anything that keeps firing after it exits
+  degrades the machine for months with nobody able to trace it back to us - the
+  hourly RAM task we shipped up to v1.9.0 evicted the whole live working set to the
+  pagefile every hour and froze real users' desktops for minutes, logging nothing.
+  Memory work is opt-in, one-shot, and touches the standby list only (`-RamClean`).
 - **Never weaken security.** No disabling Defender/SmartScreen, no disabling
   Windows Update (use the no-forced-reboot / active-hours QoL instead), no
   hosts/firewall telemetry blocking. See PROGRESS.md "EXCLUDED" lists.

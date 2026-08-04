@@ -2,7 +2,9 @@
 
 Dieses Programm macht dein Windows 10 oder 11 schneller und sauberer, mit einem
 Klick. Es entfernt Muell-Apps, Werbung, Telemetrie und Copilot, stellt die besten
-Leistungs-Einstellungen ein und raeumt den Arbeitsspeicher auf.
+Leistungs-Einstellungen ein und loescht Muell-Dateien (temporaere Dateien, alte
+Update-Reste, Papierkorb). Am Arbeitsspeicher aendert es nichts mehr - darum
+kuemmert sich Windows von allein besser.
 
 Du musst nichts koennen und nichts einstellen. Doppelklick, fertig.
 
@@ -94,6 +96,23 @@ Zur Sicherheit legt das Programm vorher automatisch einen Windows-Wiederher-
 stellungspunkt an. Im Notfall: Windows-Suche, "Wiederherstellungspunkt erstellen",
 dann "Systemwiederherstellung..." und den Punkt "Sel01Tweaker - before
 optimization" waehlen.
+
+---
+
+## Wichtig fuer alle, die eine aeltere Version hatten (bis 1.9)
+
+Aeltere Versionen haben eine Aufgabe eingerichtet, die jede Stunde im Hintergrund
+den Arbeitsspeicher "geleert" hat. Das war ein Fehler von uns. Windows musste
+danach alles wieder muehsam von der Festplatte nachladen, und genau davon ist der
+PC alle Stunde fuer ein paar Minuten eingefroren. In der Ereignisanzeige stand
+dazu nichts, deshalb war es so schwer zu finden.
+
+Diese Aufgabe gibt es nicht mehr. Du musst nichts machen: Beim naechsten Start
+entfernt das Programm sie automatisch von deinem PC. Danach laeuft von uns nichts
+mehr im Hintergrund.
+
+Wer den Arbeitsspeicher trotzdem einmal aufraeumen will, startet das Programm mit
+`-RamClean`. Das passiert dann genau einmal und nicht immer wieder.
 
 ---
 

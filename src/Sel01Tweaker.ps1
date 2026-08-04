@@ -29,7 +29,8 @@ param(
     [switch]$TimerFix,
     [switch]$MsiMode,
     [switch]$ShaderClean,
-    [switch]$NoRamTask,
+    [switch]$RamClean,
+    [switch]$NoRamTask,   # DEPRECATED, no-op: es gibt keinen Hintergrund-Task mehr
     [switch]$DryRun
 )
 
@@ -151,7 +152,10 @@ function Show-Overview {
     if ($Global:Sel01Tweaker.ShaderClean) {
         Write-Host '       + Shader     ' -ForegroundColor Cyan -NoNewline; Write-Host 'GPU-Shader-Cache leeren (-ShaderClean; erster Start ruckelt)' -ForegroundColor Gray
     }
-    Write-Host '   10. RAM-Cleaner   ' -ForegroundColor Cyan -NoNewline; Write-Host 'Speicher leeren + stuendlicher Hintergrund-Task' -ForegroundColor Gray
+    Write-Host '   10. RAM-Cleaner   ' -ForegroundColor Cyan -NoNewline; Write-Host 'alten stuendlichen RAM-Task entfernen (der verursachte Freezes)' -ForegroundColor Gray
+    if ($Global:Sel01Tweaker.RamClean) {
+        Write-Host '       + RAM        ' -ForegroundColor Cyan -NoNewline; Write-Host 'Standby-Liste einmalig leeren (-RamClean; kein Hintergrund-Task)' -ForegroundColor Gray
+    }
     Write-Host ''
     Write-Host '   Danach: Neustart empfohlen.  Rueckgaengig jederzeit mit Option [4].' -ForegroundColor DarkGray
     Show-Credits
@@ -348,7 +352,7 @@ function Invoke-Pipeline {
 #  Entry
 # ===========================================================================
 function Start-Sel01Tweaker {
-    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$SkipClean,$TimerFix,$MsiMode,$ShaderClean,$NoRamTask,$DryRun)
+    param($Profile,$Revert,$NoRestore,$SkipDebloat,$SkipAI,$SkipFiveM,$SkipClean,$TimerFix,$MsiMode,$ShaderClean,$RamClean,$NoRamTask,$DryRun)
 
     # --- Self-elevate -----------------------------------------------------
     if (-not (Test-Admin)) {
@@ -365,7 +369,8 @@ function Start-Sel01Tweaker {
             if ($TimerFix)    { $argline += '-TimerFix' }
             if ($MsiMode)     { $argline += '-MsiMode' }
             if ($ShaderClean) { $argline += '-ShaderClean' }
-            if ($NoRamTask)   { $argline += '-NoRamTask' }
+            if ($RamClean)    { $argline += '-RamClean' }
+            if ($NoRamTask)   { $argline += '-NoRamTask' }   # deprecated, nur noch zur Bindung
             if ($DryRun)      { $argline += '-DryRun' }
             Start-Process powershell.exe -Verb RunAs -ArgumentList $argline
             return
@@ -384,7 +389,8 @@ function Start-Sel01Tweaker {
     $Global:Sel01Tweaker.TimerFix    = [bool]$TimerFix
     $Global:Sel01Tweaker.MsiMode     = [bool]$MsiMode
     $Global:Sel01Tweaker.ShaderClean = [bool]$ShaderClean
-    $Global:Sel01Tweaker.NoRamTask   = [bool]$NoRamTask
+    $Global:Sel01Tweaker.RamClean    = [bool]$RamClean
+    $Global:Sel01Tweaker.NoRamTask   = [bool]$NoRamTask   # deprecated, wird nirgends mehr ausgewertet
 
     Initialize-Ui
 
@@ -419,4 +425,4 @@ function Start-Sel01Tweaker {
     }
 }
 
-Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -SkipFiveM:$SkipFiveM -SkipClean:$SkipClean -TimerFix:$TimerFix -MsiMode:$MsiMode -ShaderClean:$ShaderClean -NoRamTask:$NoRamTask -DryRun:$DryRun
+Start-Sel01Tweaker -Profile $Profile -Revert:$Revert -NoRestore:$NoRestore -SkipDebloat:$SkipDebloat -SkipAI:$SkipAI -SkipFiveM:$SkipFiveM -SkipClean:$SkipClean -TimerFix:$TimerFix -MsiMode:$MsiMode -ShaderClean:$ShaderClean -RamClean:$RamClean -NoRamTask:$NoRamTask -DryRun:$DryRun

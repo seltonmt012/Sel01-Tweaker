@@ -6,6 +6,8 @@ BeforeAll {
     $root = Split-Path $PSScriptRoot -Parent
     . (Join-Path $root 'src\lib\Common.ps1')
     . (Join-Path $root 'src\lib\Backup.ps1')
+    . (Join-Path $root 'src\lib\Ui.ps1')
+    Get-ChildItem (Join-Path $root 'src\modules') -Filter '*.ps1' | Sort-Object Name | ForEach-Object { . $_.FullName }
     $TestKey = 'HKCU:\Software\Sel01TweakerTest'
 }
 
@@ -67,6 +69,71 @@ Describe 'Set-Reg DryRun' {
         Set-Reg $TestKey 'DryVal' DWord 5
         (Test-Path $TestKey) | Should -BeFalse
         ($Global:Sel01Tweaker.Backup | Where-Object Name -eq 'DryVal') | Should -Not -BeNullOrEmpty
+        $Global:Sel01Tweaker.DryRun = $false
+    }
+}
+
+Describe 'Module 07 RAM cleaner - no background task, no working-set eviction' {
+    # Regression lock for the v1.9.0 bug: module 07 installed an HOURLY SYSTEM
+    # scheduled task that called EmptyWorkingSet() on every process and purged the
+    # standby list + file cache, evicting the machine's whole live working set to
+    # the pagefile once an hour. It shipped to users. It must never come back.
+    BeforeAll {
+        # Comments are stripped before scanning: the module header deliberately
+        # NAMES the removed APIs to document why they are gone, so only live code
+        # is scanned. Register-ScheduledTask is matched with a left word boundary
+        # so the legitimate Unregister-ScheduledTask does not trip it.
+        $ram07Raw  = Get-Content -Raw (Join-Path $root 'src\modules\07-RamCleaner.ps1')
+        $ram07Code = ($ram07Raw -replace '(?s)<#.*?#>', '') -replace '(?m)#.*$', '' -replace '(?m)//.*$', ''
+        $ram07Names = $null
+        try { Initialize-RamCleaner; $ram07Names = @([Sel01Tweaker.Memory].GetMethods().Name) } catch { $ram07Names = $null }
+    }
+
+    It 'exposes the expected commands' {
+        (Get-Command Invoke-Module-RamCleaner    -ErrorAction SilentlyContinue) | Should -Not -BeNullOrEmpty
+        (Get-Command Invoke-RamClean             -ErrorAction SilentlyContinue) | Should -Not -BeNullOrEmpty
+        (Get-Command Remove-LegacyRamCleanerTask -ErrorAction SilentlyContinue) | Should -Not -BeNullOrEmpty
+        (Get-Command Test-Sel01PagefileOnHdd     -ErrorAction SilentlyContinue) | Should -Not -BeNullOrEmpty
+    }
+
+    It 'has no <_> in live source' -ForEach @(
+        'EmptyWorkingSet'
+        'SetSystemFileCacheSize'
+        '(?<![\w-])Register-ScheduledTask'
+        'New-ScheduledTaskTrigger'
+        'RepetitionInterval'
+    ) {
+        $ram07Code -match $_ | Should -BeFalse
+    }
+
+    It 'does not expose the removed native calls' {
+        if ($null -eq $ram07Names) { Set-ItResult -Skipped -Because 'Add-Type is unavailable here'; return }
+        $ram07Names | Should -Not -Contain 'EmptyAllWorkingSets'
+        $ram07Names | Should -Not -Contain 'TrimFileCache'
+    }
+
+    It 'still exposes the standby/modified list calls' {
+        if ($null -eq $ram07Names) { Set-ItResult -Skipped -Because 'Add-Type is unavailable here'; return }
+        $ram07Names | Should -Contain 'PurgeStandbyList'
+        $ram07Names | Should -Contain 'FlushModifiedList'
+    }
+
+    It 'changes nothing without -RamClean' {
+        $Global:Sel01Tweaker.RamClean = $false
+        $Global:Sel01Tweaker.DryRun   = $true
+        $Global:Sel01Tweaker.Changes  = [System.Collections.Generic.List[object]]::new()
+        Invoke-Module-RamCleaner
+        $Global:Sel01Tweaker.Changes.Count | Should -Be 0
+        $Global:Sel01Tweaker.DryRun = $false
+    }
+
+    It 'removes the legacy hourly task even when -RamClean was not passed' {
+        Mock Remove-LegacyRamCleanerTask { }
+        $Global:Sel01Tweaker.RamClean = $false
+        $Global:Sel01Tweaker.DryRun   = $true
+        $Global:Sel01Tweaker.Changes  = [System.Collections.Generic.List[object]]::new()
+        Invoke-Module-RamCleaner
+        Should -Invoke Remove-LegacyRamCleanerTask -Times 1 -Exactly
         $Global:Sel01Tweaker.DryRun = $false
     }
 }

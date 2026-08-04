@@ -30,7 +30,7 @@ function Save-Sel01TweakerBackup {
         Profile  = $Global:Sel01Tweaker.Profile
         Created  = $Global:Sel01Tweaker.Stamp
         PowerSchemeGuid = $Global:Sel01Tweaker.PowerSchemeGuid   # minted Ultimate-Performance GUID, if any
-        RamTask  = $Global:Sel01Tweaker.RamTaskName              # scheduled task name, if created
+        RamTask  = $Global:Sel01Tweaker.RamTaskName              # legacy RAM task name - always $null since v1.10.0, kept for old backups
         TasksDisabled = $Global:Sel01Tweaker.TasksDisabled       # scheduled tasks we disabled (re-enabled on revert)
         FeaturesDisabled = $Global:Sel01Tweaker.FeaturesDisabled # optional features we disabled (re-enabled on revert)
         CapabilitiesRemoved = $Global:Sel01Tweaker.CapabilitiesRemoved # capabilities we removed (re-added on revert)
@@ -48,8 +48,8 @@ function Get-LatestBackup {
 }
 
 function Invoke-Revert {
-    <#  Restores every snapshotted registry value, removes the periodic RAM
-        scheduled task, and deletes the minted power scheme.  #>
+    <#  Restores every snapshotted registry value, removes the legacy periodic RAM
+        task + its helper script, and deletes the minted power scheme.  #>
     param([string]$BackupPath)
     if (-not $BackupPath) { $BackupPath = Get-LatestBackup }
     if (-not $BackupPath -or -not (Test-Path $BackupPath)) {
@@ -84,11 +84,26 @@ function Invoke-Revert {
         }
     }
 
-    if ($data.RamTask) {
+    # Legacy hourly RAM task (<= v1.9.0). Fall back to the literal name: backups
+    # written before the RamTask field existed still have the task installed.
+    # Unregister-ScheduledTask, not schtasks - schtasks only signals failure via
+    # its exit code, so the catch below would never fire and errors would vanish.
+    $ramTask = if ($data.RamTask) { $data.RamTask } else { 'Sel01Tweaker-RamCleaner' }
+    if (Get-ScheduledTask -TaskName $ramTask -ErrorAction SilentlyContinue) {
         try {
-            schtasks /Delete /TN $data.RamTask /F 2>$null | Out-Null
-            Write-Log "removed scheduled task $($data.RamTask)" 'INFO'
+            Unregister-ScheduledTask -TaskName $ramTask -Confirm:$false -ErrorAction Stop
+            Write-Log "removed scheduled task $ramTask" 'INFO'
         } catch { Write-Log "task removal failed: $($_.Exception.Message)" 'WARN' }
+    }
+
+    # The task's dropped helper script has to go too, otherwise revert leaves it
+    # sitting in ProgramData forever.
+    $ramHelper = Join-Path $Global:Sel01Tweaker.DataDir 'Sel01Tweaker-RamClean.ps1'
+    if (Test-Path -LiteralPath $ramHelper) {
+        try {
+            Remove-Item -LiteralPath $ramHelper -Force -ErrorAction Stop
+            Write-Log "removed helper script $ramHelper" 'INFO'
+        } catch { Write-Log "helper script removal failed: $($_.Exception.Message)" 'WARN' }
     }
 
     if ($data.PowerSchemeGuid) {

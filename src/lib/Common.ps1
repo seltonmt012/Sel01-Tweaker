@@ -11,9 +11,12 @@
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.9.0'   # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.10.0'  # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
+        # Opt-in one-shot standby-list purge (-RamClean). Declared here so module
+        # 07 can read it when dot-sourced standalone; the entry point overwrites it.
+        RamClean  = $false
         DataDir   = (Join-Path $env:ProgramData 'Sel01Tweaker')
         LogFile   = $null
         BackupFile= $null

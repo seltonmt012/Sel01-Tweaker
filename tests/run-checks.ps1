@@ -51,6 +51,67 @@ $Global:Sel01Tweaker.Changes = [System.Collections.Generic.List[string]]::new()
 Invoke-Module-ShaderCache
 ok 'shader module no-op without flag' ($Global:Sel01Tweaker.Changes.Count -eq 0)
 
+# --- RAM cleaner: no background task, no working-set eviction ---------
+# Regression lock for the v1.9.0 bug: module 07 used to install an HOURLY SYSTEM
+# scheduled task that called EmptyWorkingSet() on every process and purged the
+# standby list + file cache. That evicts the whole live working set to the
+# pagefile once an hour = multi-minute freezes. It shipped. It must never return.
+# The LAST check in this section shadows Remove-LegacyRamCleanerTask - that is
+# irreversible in-session, so nothing below it may call the real function.
+ok 'module RamCleaner exists'   ([bool](Get-Command Invoke-Module-RamCleaner       -ErrorAction SilentlyContinue))
+ok 'ram clean helper exists'    ([bool](Get-Command Invoke-RamClean                -ErrorAction SilentlyContinue))
+ok 'legacy task remover exists' ([bool](Get-Command Remove-LegacyRamCleanerTask    -ErrorAction SilentlyContinue))
+ok 'pagefile-on-hdd probe exists' ([bool](Get-Command Test-Sel01PagefileOnHdd      -ErrorAction SilentlyContinue))
+
+# Forbidden-pattern scan of the module source. Comments are stripped first: the
+# module header deliberately NAMES the removed APIs to document why they are
+# gone, so only live code is scanned. 'Register-ScheduledTask' is matched with a
+# left word boundary so the legitimate Unregister-ScheduledTask does not trip it.
+$ram07Raw  = Get-Content -Raw (Join-Path $root 'src\modules\07-RamCleaner.ps1')
+$ram07Code = ($ram07Raw -replace '(?s)<#.*?#>', '') -replace '(?m)#.*$', '' -replace '(?m)//.*$', ''
+$ram07Banned = [ordered]@{
+    'EmptyWorkingSet'         = 'EmptyWorkingSet'
+    'SetSystemFileCacheSize'  = 'SetSystemFileCacheSize'
+    'Register-ScheduledTask'  = '(?<![\w-])Register-ScheduledTask'
+    'New-ScheduledTaskTrigger'= 'New-ScheduledTaskTrigger'
+    'RepetitionInterval'      = 'RepetitionInterval'
+}
+foreach ($ram07Pat in $ram07Banned.Keys) {
+    ok "ram07 source free of $ram07Pat" (-not ($ram07Code -match $ram07Banned[$ram07Pat]))
+}
+
+# The native type must not even expose the removed calls. Add-Type needs a
+# compiler; if it is unavailable we still report PASS/FAIL by falling back to
+# the C# member names in the source instead of silently skipping.
+$ram07Names = $null
+try { Initialize-RamCleaner; $ram07Names = @([Sel01Tweaker.Memory].GetMethods().Name) } catch { $ram07Names = $null }
+$ram07How = if ($null -ne $ram07Names) { 'type' } else { 'source' }
+$ram07HasMember = {
+    param([string]$MemberName)
+    if ($null -ne $ram07Names) { return ($ram07Names -contains $MemberName) }
+    return ($ram07Code -match ('(?<![\w])' + [regex]::Escape($MemberName)))
+}
+ok "ram07 [$ram07How] no EmptyAllWorkingSets" (-not (& $ram07HasMember 'EmptyAllWorkingSets'))
+ok "ram07 [$ram07How] no TrimFileCache"       (-not (& $ram07HasMember 'TrimFileCache'))
+ok "ram07 [$ram07How] has PurgeStandbyList"        (& $ram07HasMember 'PurgeStandbyList')
+ok "ram07 [$ram07How] has FlushModifiedList"       (& $ram07HasMember 'FlushModifiedList')
+
+# RamCleaner is opt-in like ShaderCache: without -RamClean it must change nothing.
+$Global:Sel01Tweaker.RamClean = $false
+$Global:Sel01Tweaker.DryRun   = $true
+$Global:Sel01Tweaker.Changes  = [System.Collections.Generic.List[object]]::new()
+Invoke-Module-RamCleaner
+ok 'ram module no-op without flag' ($Global:Sel01Tweaker.Changes.Count -eq 0)
+
+# Migration is UNCONDITIONAL: the legacy hourly task is uninstalled on every run,
+# even when -RamClean was not passed. (shadows Remove-LegacyRamCleanerTask)
+$script:ramLegacyCalls = 0
+function Remove-LegacyRamCleanerTask { $script:ramLegacyCalls++ }
+$Global:Sel01Tweaker.RamClean = $false
+$Global:Sel01Tweaker.Changes  = [System.Collections.Generic.List[object]]::new()
+Invoke-Module-RamCleaner
+ok 'ram: legacy task removal runs without -RamClean' ($script:ramLegacyCalls -ge 1)
+
 
 $Global:Sel01Tweaker.DryRun = $false
 $Global:Sel01Tweaker.Backup = [System.Collections.Generic.List[object]]::new()

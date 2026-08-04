@@ -66,8 +66,16 @@ git -C $root push origin $tag
 Step 'creating GitHub release'
 $gh = (Get-Command gh -ErrorAction SilentlyContinue).Source
 if (-not $gh) { $gh = "$env:ProgramFiles\GitHub CLI\gh.exe" }
-$cred = "protocol=https`nhost=github.com`n`n" | git credential fill 2>$null
-$env:GH_TOKEN = (($cred | Where-Object { $_ -like 'password=*' }) -replace '^password=','').Trim()
+# Prefer gh's own stored login. Only fall back to the git credential helper when
+# gh is not authenticated. The fallback pipes an ARRAY of lines, not one string
+# with embedded `n - PowerShell writes a single string to native stdin as CRLF,
+# and `git credential fill` then rejects it with "missing protocol field".
+& $gh auth status 2>$null | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Step 'gh not logged in - reusing the stored git credential'
+    $cred = @('protocol=https', 'host=github.com', '') | git credential fill
+    $env:GH_TOKEN = (($cred | Where-Object { $_ -like 'password=*' }) -replace '^password=','').Trim()
+}
 $notesArg = if (Test-Path $Notes) { @('--notes-file', $Notes) } else { @('--generate-notes') }
 & $gh release create $tag $zip (Join-Path $root 'dist\Sel01Tweaker.ps1') `
     --repo $Repo --title "Sel01-Tweaker $tag" @notesArg

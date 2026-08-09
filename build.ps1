@@ -41,7 +41,11 @@ $final = $entry.Replace($marker, ($header + "`r`n" + $bundle.ToString()))
 
 $outDir = Split-Path $OutFile -Parent
 if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
-Set-Content -Path $OutFile -Value $final -Encoding UTF8
+# BOM-less UTF-8 is mandatory: `irm` hands the raw text (BOM included) to
+# [scriptblock]::Create(), and a leading U+FEFF makes the parser reject the
+# param() block ("Unexpected attribute 'CmdletBinding'"), killing the one-liner.
+# Set-Content -Encoding UTF8 writes a BOM on Windows PowerShell 5.1, so don't.
+[System.IO.File]::WriteAllText($OutFile, $final, [System.Text.UTF8Encoding]::new($false))
 
 # Syntax-validate the generated file before declaring success.
 $errors = $null
@@ -49,6 +53,24 @@ $errors = $null
 if ($errors -and $errors.Count) {
     Write-Host "Bundle has syntax errors:" -ForegroundColor Red
     $errors | ForEach-Object { Write-Host "  $($_.Message) (line $($_.Extent.StartLineNumber))" -ForegroundColor Red }
+    exit 1
+}
+
+# The bundle must stay pure ASCII. Without a BOM, Windows PowerShell 5.1 reads a
+# non-ASCII file as ANSI and mangles it - so no umlauts / box-drawing chars in src.
+$raw = [System.IO.File]::ReadAllText($OutFile)
+$bad = [regex]::Matches($raw, '[^\x00-\x7F]')
+if ($bad.Count) {
+    $chars = ($bad | ForEach-Object { $_.Value } | Select-Object -Unique) -join ' '
+    Write-Host "Bundle contains $($bad.Count) non-ASCII char(s): $chars" -ForegroundColor Red
+    Write-Host "Replace them in src\ (e.g. [char]0x2588) - BOM-less UTF8 + 5.1 = mojibake." -ForegroundColor Red
+    exit 1
+}
+
+# The one-liner path: parse the file text exactly like `irm | scriptblock::Create`.
+try { [void][scriptblock]::Create($raw) }
+catch {
+    Write-Host "Bundle is not usable via [scriptblock]::Create(): $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 }
 

@@ -35,6 +35,25 @@ ok 'module ShaderCache exists' ([bool](Get-Command Invoke-Module-ShaderCache -Er
 ok 'shader clear helper exists' ([bool](Get-Command Clear-Sel01ShaderCache -ErrorAction SilentlyContinue))
 ok 'gta exe finder exists'  ([bool](Get-Command Get-Sel01GtaVExePaths -ErrorAction SilentlyContinue))
 
+# --- dist bundle must survive the irm one-liner -----------------------------
+# Regression lock: dist\Sel01Tweaker.ps1 used to be written with a UTF-8 BOM.
+# `irm` hands the BOM through as the first char of the string, and
+# [scriptblock]::Create() then parses U+FEFF as a statement, so the param()
+# block errors with "Unexpected attribute 'CmdletBinding'" - the published
+# one-liner was dead. No BOM => the file must also stay pure ASCII, or
+# Windows PowerShell 5.1 decodes it as ANSI and mangles it.
+$distFile = Join-Path $root 'dist\Sel01Tweaker.ps1'
+if (Test-Path $distFile) {
+    $distRaw = [System.IO.File]::ReadAllText($distFile)
+    ok 'dist has no BOM'    ($distRaw[0] -ne [char]0xFEFF)
+    ok 'dist is pure ASCII' (-not [regex]::IsMatch($distRaw, '[^\x00-\x7F]'))
+    $distParses = $true
+    try { [void][scriptblock]::Create($distRaw) } catch { $distParses = $false }
+    ok 'dist parses via [scriptblock]::Create' $distParses
+} else {
+    ok 'dist bundle present (run .\build.ps1)' $false
+}
+
 # Shader-cache paths: only ever LOCALAPPDATA cache dirs, and only existing ones.
 $shPaths = @(Get-Sel01ShaderCachePaths)
 ok 'shader paths all exist'  (-not ($shPaths | Where-Object { -not (Test-Path -LiteralPath $_) }))

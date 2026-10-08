@@ -53,7 +53,7 @@ param(
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.10.2'  # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.10.3'  # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         # Opt-in one-shot standby-list purge (-RamClean). Declared here so module
@@ -972,7 +972,13 @@ function Invoke-Module-WinutilTweaks {
     # --- Telemetry --------------------------------------------------------
     Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' DWord 0 -Note 'Telemetry off'
     Set-Reg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection' 'AllowTelemetry' DWord 0
-    Set-ServiceStart 'DiagTrack' Disabled -Note 'DiagTrack (Connected User Experiences) disabled'
+    # DiagTrack stays ON (since v1.10.3, owner's call). Up to v1.10.2 we disabled
+    # it, so every run puts it back to the Windows default (Automatic) and starts
+    # it - repairs machines from older runs. No-op where it is already Automatic.
+    Set-ServiceStart 'DiagTrack' Automatic -Note 'DiagTrack wieder an (Windows-Standard, war bis v1.10.2 aus)'
+    if (-not $Global:Sel01Tweaker.DryRun) {
+        try { Start-Service -Name 'DiagTrack' -ErrorAction Stop } catch {}
+    }
     Set-ServiceStart 'dmwappushservice' Disabled
 
     # --- Activity history / timeline -------------------------------------

@@ -11,7 +11,7 @@
 # ---------------------------------------------------------------------------
 if (-not $Global:Sel01Tweaker) {
     $Global:Sel01Tweaker = [ordered]@{
-        Version   = '1.10.2'  # single source of truth - bump on releases (see RELEASING.md)
+        Version   = '1.10.3'  # single source of truth - bump on releases (see RELEASING.md)
         Profile   = 'Gaming'
         DryRun    = $false
         # Opt-in one-shot standby-list purge (-RamClean). Declared here so module

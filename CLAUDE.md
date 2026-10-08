@@ -153,9 +153,13 @@ cleanly when stdin is non-interactive so the menu can't spin.
   here-string terminators). **`Add-Type -MemberDefinition` can't contain `using`** -
   pass `-UsingNamespace` (not `System`/`System.Runtime.InteropServices`, which are
   defaults). See `07-RamCleaner.ps1`.
-- **`Invoke-Remote` splats a hashtable by name** (only module 01 Debloat orchestrates
-  now; RemoveAI is native). Switches bind and array params pass element-by-element. The
-  param names must match the **live** upstream Win11Debloat (params get renamed - e.g.
+- **`Invoke-Remote` runs the download in a CHILD `powershell.exe -File`**, never
+  in-process: the Win11Debloat launcher ends with `Exit $exitCode`, and `exit` in a
+  `[scriptblock]::Create()` block invoked with `&` kills our whole host (the one-liner
+  console closed after module 01 up to v1.10.1; `try/catch` can't see `exit`). Params are
+  a hashtable of switches (`$true`) / scalars (only module 01 Debloat orchestrates now;
+  RemoveAI is native); arrays can't cross `-File` and throw. A non-zero child exit code
+  is logged as failure, not counted as a change. The param names must match the **live** upstream Win11Debloat (params get renamed - e.g.
   `DisableChat` → `HideChat`); a wrong name aborts the whole orchestrated run. Verify by
   parsing the downloaded script's `param()` block.
 - **The overlay must always degrade.** Never assume `UI.Fancy`; all panel rendering

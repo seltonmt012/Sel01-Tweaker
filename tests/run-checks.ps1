@@ -175,6 +175,29 @@ Remove-Item $bf -Force -ErrorAction SilentlyContinue
 
 Remove-Item $TestKey -Recurse -Force -ErrorAction SilentlyContinue
 
+# --- Invoke-Remote: an upstream `exit` must not kill our process -------------
+# Regression lock for v1.10.1: the Win11Debloat launcher ends with `Exit $exitCode`
+# and used to run in-process via [scriptblock]::Create - the irm one-liner console
+# closed right after module 01. Probed in a child: an in-process `exit` would end
+# the probe before it prints SURVIVED (and exit 0 here would fake a pass).
+$probeFile = Join-Path $env:TEMP 'sel01-remote-probe.ps1'
+@'
+param($Root,$Ps)
+. (Join-Path $Root 'src\lib\Common.ps1'); . (Join-Path $Root 'src\lib\Ui.ps1')
+function Test-Online { $true }
+function Invoke-RestMethod { 'param([switch]$Silent,[string]$Mode) if (-not $Silent -or $Mode -ne "x y") { Exit 7 }; Exit 0' }
+function Get-Sel01ChildPowerShell { $Ps }
+$Global:Sel01Tweaker.Changes = [System.Collections.Generic.List[object]]::new()
+Invoke-Remote -Name 'Probe' -Url 'http://probe' -Params @{ Silent = $true; Mode = 'x y' }
+Invoke-Remote -Name 'Probe' -Url 'http://probe' -Params @{ Silent = $false; Mode = 'x y' }
+"SURVIVED changes=$($Global:Sel01Tweaker.Changes.Count)"
+'@ | Set-Content -Path $probeFile -Encoding UTF8
+$selfPs = (Get-Process -Id $PID).Path
+$probeOut = (& $selfPs -NoProfile -ExecutionPolicy Bypass -File $probeFile $root $selfPs 2>&1 | Out-String)
+Remove-Item $probeFile -Force -ErrorAction SilentlyContinue
+ok 'remote: upstream exit does not kill the run' ($probeOut -match 'SURVIVED')
+ok 'remote: switch+string args bind, non-zero exit not counted' ($probeOut -match 'SURVIVED changes=1\b')
+
 # --- Power module gating (LAST: shadows Set-Reg/Get-Sel01PowerInfo) ---------
 # Battery must skip everything; laptop on AC must still get PowerThrottlingOff
 # (the OpenTweak finding we adopted) but NOT the device-level powercfg block.

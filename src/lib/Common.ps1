@@ -431,21 +431,32 @@ function Restart-Explorer {
 #  Orchestration: download a remote script and invoke it with args.
 #  Used by the Win11Debloat / RemoveWindowsAI modules (MIT, run as-is).
 # ---------------------------------------------------------------------------
+function Get-Sel01ChildPowerShell {
+    # Host for orchestrated upstream scripts. Separate function so tests can
+    # point it at another PowerShell.
+    'powershell.exe'
+}
+
 function Invoke-Remote {
-    # Params is a hashtable splatted by NAME into the downloaded script. Use a
-    # hashtable (not a flat -Flag array) so switch params bind reliably and
-    # array params (e.g. RemoveWindowsAI -Options) pass as real arrays that pass
-    # the script's ValidateSet element-by-element.
+    # The downloaded script runs in a CHILD powershell.exe, never in our own
+    # process: the Win11Debloat launcher ends with `Exit $exitCode`, and `exit`
+    # inside a [scriptblock]::Create()'d block invoked with & kills the whole
+    # host - with the irm one-liner the admin console just closed after module
+    # 01 and modules 02..19 never ran (try/catch does not see `exit`).
+    # Params is a hashtable of switches (bool) / scalars, passed by NAME on the
+    # child's command line. Arrays can't cross -File, so they are rejected.
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$Url,
         [hashtable]$Params = @{}
     )
-    $shown = (($Params.GetEnumerator() | Sort-Object Name | ForEach-Object {
-        if     ($_.Value -is [bool])  { "-$($_.Key)" }
-        elseif ($_.Value -is [array]) { "-$($_.Key) $($_.Value -join ',')" }
-        else                          { "-$($_.Key) $($_.Value)" }
-    }) -join ' ')
+    $argList = [System.Collections.Generic.List[string]]::new()
+    foreach ($kv in ($Params.GetEnumerator() | Sort-Object Name)) {
+        if     ($kv.Value -is [bool])  { if ($kv.Value) { $argList.Add("-$($kv.Key)") } }
+        elseif ($kv.Value -is [array]) { throw "Invoke-Remote: array param -$($kv.Key) not supported (child -File)" }
+        else                           { $argList.Add("-$($kv.Key)"); $argList.Add("$($kv.Value)") }
+    }
+    $shown = $argList -join ' '
 
     if ($Global:Sel01Tweaker.DryRun) {
         Write-Log "DRYRUN orchestrate $Name : $Url $shown" 'INFO'
@@ -456,10 +467,12 @@ function Invoke-Remote {
         return
     }
     $ProgressPreference = 'SilentlyContinue'
+    $tmp = Join-Path $env:TEMP ("Sel01-{0}-{1}.ps1" -f $Name, [guid]::NewGuid().ToString('N'))
     try {
         Write-Log "Downloading $Name ..." 'INFO'
         $code = Invoke-RestMethod -Uri $Url -UseBasicParsing -ErrorAction Stop
-        $sb = [scriptblock]::Create($code)
+        # BOM so Windows PowerShell 5.1 reads any non-ASCII upstream text as UTF-8.
+        [System.IO.File]::WriteAllText($tmp, $code, [System.Text.UTF8Encoding]::new($true))
         Write-Log "Running $Name $shown (Ausgabe -> Log)" 'INFO'
         # The upstream tool prints lots of Write-Host / winget output that would
         # paint over the overlay - park the panel and funnel every stream to the
@@ -468,13 +481,24 @@ function Invoke-Remote {
         # Redirect to a SEPARATE file, never the main log: the external tool can
         # spawn child processes (winget/DISM) that keep the redirected handle open,
         # which would lock our own Write-Log out of the main log file.
+        # -NonInteractive: an upstream "Press enter to exit" would otherwise wait
+        # invisibly (output goes to the file) and hang the run.
         $ext = if ($Global:Sel01Tweaker.LogFile) { $Global:Sel01Tweaker.LogFile -replace '\.txt$','-extern.txt' } else { $null }
-        if ($ext) { & $sb @Params *>> $ext } else { & $sb @Params *> $null }
+        $childArgs = @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$tmp) + $argList
+        $ps = Get-Sel01ChildPowerShell
+        if ($ext) { & $ps @childArgs *>> $ext } else { & $ps @childArgs *> $null }
+        $rc = $LASTEXITCODE
         Resume-Panel
+        if ($rc -ne 0) {
+            Write-Log "$Name failed (exit code $rc) - details: $ext" 'WARN'
+            return
+        }
         Write-Log "$Name finished" 'OK'
         Add-Change "$Name applied ($shown)"
     } catch {
         Resume-Panel
         Write-Log "$Name failed: $($_.Exception.Message)" 'WARN'
+    } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
     }
 }

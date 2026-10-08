@@ -142,6 +142,10 @@ cleanly when stdin is non-interactive so the menu can't spin.
   hourly RAM task we shipped up to v1.9.0 evicted the whole live working set to the
   pagefile every hour and froze real users' desktops for minutes, logging nothing.
   Memory work is opt-in, one-shot, and touches the standby list only (`-RamClean`).
+- **DiagTrack stays ON** (owner's decision, v1.10.3). Module 03 sets it back to
+  Automatic + starts it on every run (repairs machines disabled by <= v1.10.2). Telemetry
+  stays reduced via `AllowTelemetry=0`, `dmwappushservice` and the Diagtrack ETW
+  autologger (module 10). `run-checks.ps1` fails if DiagTrack is disabled again.
 - **Never weaken security.** No disabling Defender/SmartScreen, no disabling
   Windows Update (use the no-forced-reboot / active-hours QoL instead), no
   hosts/firewall telemetry blocking. See PROGRESS.md "EXCLUDED" lists.

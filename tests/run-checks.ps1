@@ -221,6 +221,14 @@ $Global:Sel01Tweaker.MsiMode = $true
 Invoke-Module-Power
 ok 'power: MSI mode stays desktop-only' (-not ($script:regCalls -contains 'MSISupported'))
 $Global:Sel01Tweaker.MsiMode = $false
+
+# DiagTrack must stay ON (owner's call since v1.10.3): module 03 restores it to
+# Automatic instead of disabling it. (shadows Set-ServiceStart)
+$script:svcCalls = [System.Collections.Generic.List[string]]::new()
+function Set-ServiceStart { param($Name,$StartupType,$Note) $script:svcCalls.Add("$Name=$StartupType") | Out-Null }
+Invoke-Module-WinutilTweaks
+ok 'diagtrack: set to Automatic'  ($script:svcCalls -contains 'DiagTrack=Automatic')
+ok 'diagtrack: never disabled'    (-not ($script:svcCalls -match '^DiagTrack=(Disabled|Manual)$'))
 $Global:Sel01Tweaker.DryRun = $false
 
 Write-Host ''
